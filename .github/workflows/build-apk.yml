@@ -25,8 +25,16 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      -
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: 'latest'
+
+      - name: Install Android SDK packages
+        run: |
+          sdkmanager --sdk_root="$ANDROID_HOME" "platforms;android-35" "build-tools;34.0.0"
+
 
       - name: Install Android SDK packages
         run: |
