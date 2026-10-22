@@ -25,12 +25,11 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Accept Android licenses
-        run: yes | sdkmanager --sdk_root="$ANDROID_HOME" --licenses || true
-
-      - name: Install Android SDK packages
-        run: |
-          sdkmanager --sdk_root="$ANDROID_HOME" "platforms;android-35" "build-tools;34.0.0"
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-35 build-tools;34.0.0'
+          accept-android-sdk-licenses: true
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
