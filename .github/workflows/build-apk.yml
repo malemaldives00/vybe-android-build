@@ -38,7 +38,7 @@ jobs:
 
       - name: Extract source
         run: |
-          unzip -q VYBE_Android_Source.zip -d source
+          unzip -VYBE_Android_Source.zip
           test -f source/VYBE_Android/settings.gradle
 
       - name: Build APK
