@@ -5,6 +5,7 @@ on:
   workflow_dispatch:
   push:
     paths:
+      - 'VYBE_Android_AudioRoom_Fix_Source.zip'
       - 'VYBE_Android_Source.zip'
       - '.github/workflows/build-apk.yml'
 
@@ -37,9 +38,30 @@ jobs:
           gradle-version: '8.9'
 
       - name: Extract source
+        shell: bash
         run: |
-          unzip -VYBE_Android_Source.zip
-          test -f source/VYBE_Android/settings.gradle
+          set -euo pipefail
+          mkdir -p source
+
+          if [ -f VYBE_Android_AudioRoom_Fix_Source.zip ]; then
+            ZIP_FILE="VYBE_Android_AudioRoom_Fix_Source.zip"
+          elif [ -f VYBE_Android_Source.zip ]; then
+            ZIP_FILE="VYBE_Android_Source.zip"
+          else
+            echo "ERROR: Source ZIP file not found."
+            ls -la
+            exit 1
+          fi
+
+          echo "Extracting: $ZIP_FILE"
+          unzip -q "$ZIP_FILE" -d source
+
+          if [ ! -f source/VYBE_Android/settings.gradle ] &&
+             [ ! -f source/VYBE_Android/settings.gradle.kts ]; then
+            echo "ERROR: Gradle settings file not found."
+            find source -maxdepth 4 -type f | head -100
+            exit 1
+          fi
 
       - name: Build APK
         working-directory: source/VYBE_Android
