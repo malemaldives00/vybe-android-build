@@ -1,4 +1,3 @@
-
 name: Build VYBE APK
 
 on:
@@ -7,6 +6,7 @@ on:
     paths:
       - 'VYBE_Android_AudioRoom_Fix_Source.zip'
       - 'VYBE_Android_Source.zip'
+      - 'VYBE_Android_Project_Source_BackButton_Checked.zip'
       - '.github/workflows/build-apk.yml'
 
 permissions:
@@ -43,7 +43,9 @@ jobs:
           set -euo pipefail
           mkdir -p source
 
-          if [ -f VYBE_Android_AudioRoom_Fix_Source.zip ]; then
+          if [ -f VYBE_Android_Project_Source_BackButton_Checked.zip ]; then
+            ZIP_FILE="VYBE_Android_Project_Source_BackButton_Checked.zip"
+          elif [ -f VYBE_Android_AudioRoom_Fix_Source.zip ]; then
             ZIP_FILE="VYBE_Android_AudioRoom_Fix_Source.zip"
           elif [ -f VYBE_Android_Source.zip ]; then
             ZIP_FILE="VYBE_Android_Source.zip"
