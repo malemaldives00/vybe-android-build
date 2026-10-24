@@ -5,10 +5,12 @@ on:
   workflow_dispatch:
   push:
     paths:
+      - 'vybe_logo.png'
+      - 'VYBE_CP_Friend_Click_Back_Repaired.zip'
       - 'VYBE_Family_Create_Join_Explore_Source_Checked.zip'
+      - 'VYBE_Android_Project_Source_BackButton_Checked.zip'
       - 'VYBE_Android_AudioRoom_Fix_Source.zip'
       - 'VYBE_Android_Source.zip'
-      - 'VYBE_Android_Project_Source_BackButton_Checked.zip'
       - '.github/workflows/build-apk.yml'
 
 permissions:
@@ -22,6 +24,15 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Check required files
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f vybe_logo.png || {
+            echo "ERROR: Upload vybe_logo.png to repository root."
+            exit 1
+          }
+
       - name: Set up Java
         uses: actions/setup-java@v4
         with:
@@ -30,88 +41,122 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
-        with:
-          packages: 'platform-tools platforms;android-35 build-tools;34.0.0'
-          accept-android-sdk-licenses: true
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
 
-      - name: Extract source
+      - name: Extract Android source
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p source
 
-          if [ -f VYBE_Family_Create_Join_Explore_Source_Checked.zip ]; then
-            ZIP_FILE="VYBE_Family_Create_Join_Explore_Source_Checked.zip"
-          elif [ -f VYBE_Android_Project_Source_BackButton_Checked.zip ]; then
-            ZIP_FILE="VYBE_Android_Project_Source_BackButton_Checked.zip"
-          elif [ -f VYBE_Android_AudioRoom_Fix_Source.zip ]; then
-            ZIP_FILE="VYBE_Android_AudioRoom_Fix_Source.zip"
-          elif [ -f VYBE_Android_Source.zip ]; then
-            ZIP_FILE="VYBE_Android_Source.zip"
-          else
-            echo "ERROR: Source ZIP file not found."
+          ZIP_FILE=""
+
+          for candidate in \
+            VYBE_CP_Friend_Click_Back_Repaired.zip \
+            VYBE_Family_Create_Join_Explore_Source_Checked.zip \
+            VYBE_Android_Project_Source_BackButton_Checked.zip \
+            VYBE_Android_AudioRoom_Fix_Source.zip \
+            VYBE_Android_Source.zip
+          do
+            if [ -f "$candidate" ]; then
+              ZIP_FILE="$candidate"
+              break
+            fi
+          done
+
+          if [ -z "$ZIP_FILE" ]; then
+            echo "ERROR: No supported source ZIP found."
             ls -la
             exit 1
           fi
 
-          echo "Extracting: $ZIP_FILE"
+          echo "Selected source: $ZIP_FILE"
           unzip -q "$ZIP_FILE" -d source
 
-          if [ -f source/settings.gradle ] || [ -f source/settings.gradle.kts ]; then
-            PROJECT_DIR="source"
-          elif [ -f source/VYBE_Android/settings.gradle ] || [ -f source/VYBE_Android/settings.gradle.kts ]; then
-            PROJECT_DIR="source/VYBE_Android"
-          else
-            echo "ERROR: Gradle settings file not found."
+          PROJECT_DIR=""
+
+          while IFS= read -r file; do
+            candidate="${file%/settings.gradle}"
+            candidate="${candidate%/settings.gradle.kts}"
+
+            if [ -f "$candidate/settings.gradle" ] || \
+               [ -f "$candidate/settings.gradle.kts" ]; then
+              if [ -f "$candidate/app/src/main/AndroidManifest.xml" ]; then
+                PROJECT_DIR="$candidate"
+                break
+              fi
+            fi
+          done < <(
+            find source -type f \
+              \( -name settings.gradle -o -name settings.gradle.kts \)
+          )
+
+          if [ -z "$PROJECT_DIR" ]; then
+            echo "ERROR: Android Gradle project not found in ZIP."
             find source -maxdepth 5 -type f | head -100
             exit 1
           fi
 
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-          echo "Using project directory: $PROJECT_DIR"
-          ls -la "$PROJECT_DIR"
+          echo "Using project: $PROJECT_DIR"
 
-      - name: Add VYBE purple and gold app icon
+      - name: Add original VYBE logo as launcher icon
         shell: bash
         run: |
           set -euo pipefail
 
-          RES="$PROJECT_DIR/app/src/main/res"
-          MANIFEST="$PROJECT_DIR/app/src/main/AndroidManifest.xml"
+          export RES="$PROJECT_DIR/app/src/main/res"
+          export MANIFEST="$PROJECT_DIR/app/src/main/AndroidManifest.xml"
 
-          mkdir -p "$RES/drawable"
+          python3 -m pip install --quiet Pillow
 
-          cat > "$RES/drawable/ic_vybe_logo.xml" <<'EOF'
-          <vector xmlns:android="http://schemas.android.com/apk/res/android"
-              android:width="108dp"
-              android:height="108dp"
-              android:viewportWidth="108"
-              android:viewportHeight="108">
-              <path
-                  android:fillColor="#211044"
-                  android:pathData="M0,0h108v108h-108z"/>
-              <path
-                  android:fillColor="#F2C76B"
-                  android:pathData="M22,31 L33,31 L54,76 L75,31 L86,31 L60,84 L48,84 Z"/>
-              <path
-                  android:fillColor="#F2C76B"
-                  android:pathData="M36,23 L42,12 L53,21 L64,12 L71,23 L71,28 L36,28 Z"/>
-              <path
-                  android:fillColor="#211044"
-                  android:pathData="M42,22 L45,18 L53,25 L63,18 L66,22 L66,24 L42,24 Z"/>
-          </vector>
-          EOF
+          python3 <<'PY'
+          import os
+          from PIL import Image, ImageOps
 
-          python3 - "$MANIFEST" <<'PY'
-          import sys
+          res = os.environ["RES"]
+          logo_path = "vybe_logo.png"
+
+          logo = Image.open(logo_path).convert("RGBA")
+
+          # Fit the complete logo into a square canvas.
+          # Keep the logo's original colors and background.
+          side = max(logo.width, logo.height)
+          canvas = Image.new("RGBA", (side, side), (0, 0, 0, 255))
+          logo.thumbnail((side, side), Image.Resampling.LANCZOS)
+          canvas.alpha_composite(
+              logo,
+              ((side - logo.width) // 2, (side - logo.height) // 2)
+          )
+
+          sizes = {
+              "mipmap-mdpi": 48,
+              "mipmap-hdpi": 72,
+              "mipmap-xhdpi": 96,
+              "mipmap-xxhdpi": 144,
+              "mipmap-xxxhdpi": 192,
+          }
+
+          for folder, size in sizes.items():
+              out_dir = os.path.join(res, folder)
+              os.makedirs(out_dir, exist_ok=True)
+              icon = canvas.resize(
+                  (size, size), Image.Resampling.LANCZOS
+              )
+              icon.save(os.path.join(out_dir, "ic_launcher.png"))
+
+          print("Generated launcher icons from vybe_logo.png")
+          PY
+
+          python3 <<'PY'
+          import os
           import xml.etree.ElementTree as ET
 
-          path = sys.argv[1]
+          path = os.environ["MANIFEST"]
           android = "{http://schemas.android.com/apk/res/android}"
 
           tree = ET.parse(path)
@@ -119,20 +164,21 @@ jobs:
           app = root.find("application")
 
           if app is None:
-              raise SystemExit("ERROR: No application tag in AndroidManifest.xml")
+              raise SystemExit("ERROR: <application> missing in manifest")
 
-          app.set(android + "icon", "@drawable/ic_vybe_logo")
+          app.set(android + "icon", "@mipmap/ic_launcher")
+          app.set(android + "roundIcon", "@mipmap/ic_launcher")
+
           tree.write(path, encoding="utf-8", xml_declaration=True)
-          print("VYBE launcher icon configured.")
+          print("Manifest updated to use VYBE launcher icon")
           PY
 
-      - name: Build APK
+      - name: Build debug APK
         run: gradle --no-daemon -p "$PROJECT_DIR" assembleDebug
 
-      - name: Upload APK
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: vybe-debug-apk
-          path: |
-            source/**/app/build/outputs/apk/debug/app-debug.apk
+          path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
