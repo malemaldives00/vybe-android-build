@@ -1,3 +1,4 @@
+ 
 name: Build VYBE APK
 
 on:
@@ -40,7 +41,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          ARCHIVE="VYBE_CP_Friend_Click_Back_Repaired.zip"
+          ARCHIVE="VYBE_CP_Friend_Click_Back_Repaired_with_MY_EXACT_Icon.zip"
 
           if [ ! -f "$ARCHIVE" ]; then
             echo "ERROR: Project ZIP not found: $ARCHIVE"
@@ -53,7 +54,7 @@ jobs:
           SETTINGS="$(find "$RUNNER_TEMP/vybe-source" -type f \( -name settings.gradle -o -name settings.gradle.kts \) -print -quit)"
 
           if [ -z "$SETTINGS" ]; then
-            echo "ERROR: Gradle settings file not found in ZIP."
+            echo "ERROR: Gradle settings file not found."
             exit 1
           fi
 
