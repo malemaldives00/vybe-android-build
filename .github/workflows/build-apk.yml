@@ -31,83 +31,50 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          yes | sdkmanager --licenses >/dev/null || true
           sdkmanager --install \
             "platform-tools" \
             "platforms;android-35" \
             "build-tools;35.0.0"
+
+      - name: Find and extract Android project
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ARCHIVE="VYBE_CP_Friend_Click_Back_Repaired.zip"
+
+          if [ ! -f "$ARCHIVE" ]; then
+            echo "ERROR: Project ZIP not found: $ARCHIVE"
+            exit 1
+          fi
+
+          mkdir -p "$RUNNER_TEMP/vybe-source"
+          unzip -q "$ARCHIVE" -d "$RUNNER_TEMP/vybe-source"
+
+          PROJECT_DIR="$(dirname "$(find "$RUNNER_TEMP/vybe-source" -type f \( -name settings.gradle -o -name settings.gradle.kts \) -print -quit)")"
+
+          if [ -z "$PROJECT_DIR" ] || [ ! -f "$PROJECT_DIR/app/build.gradle" -a ! -f "$PROJECT_DIR/app/build.gradle.kts" ]; then
+            echo "ERROR: Android project files not found inside ZIP."
+            exit 1
+          fi
+
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.7"
 
-      - name: Find Android project ZIP
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          for archive in \
-            "VYBE_CP_Friend_Click_Back_Repaired.zip" \
-            "VYBE_Android_Project_Source_BackButton_Checked.zip" \
-            "VYBE_Android_AudioRoom_Fix_Source.zip" \
-            "VYBE_Android_Project.zip"
-          do
-            [ -f "$archive" ] || continue
-
-            CHECK_DIR="$RUNNER_TEMP/vybe-check"
-            rm -rf "$CHECK_DIR"
-            mkdir -p "$CHECK_DIR"
-            unzip -q "$archive" -d "$CHECK_DIR"
-
-            SETTINGS="$(find "$CHECK_DIR" -type f \
-              \( -name settings.gradle -o -name settings.gradle.kts \) \
-              -print -quit)"
-
-            MANIFEST="$(find "$CHECK_DIR" -type f \
-              -path '*/app/src/main/AndroidManifest.xml' \
-              -print -quit)"
-
-            if [ -n "$SETTINGS" ] && [ -n "$MANIFEST" ]; then
-              PROJECT_DIR="$(dirname "$SETTINGS")"
-              echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-              echo "Selected project archive: $archive"
-              echo "Project directory: $PROJECT_DIR"
-              exit 0
-            fi
-          done
-
-          echo "ERROR: No complete Android project found in the available ZIP files."
-          exit 1
-
-      - name: Build APK
+      - name: Build debug APK
         shell: bash
         run: |
           set -euo pipefail
           cd "$PROJECT_DIR"
           gradle assembleDebug --stacktrace
 
-      - name: Verify APK
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/vybe-apk"
-
-          find "$PROJECT_DIR" -type f \
-            -path '*/build/outputs/apk/debug/*.apk' \
-            -exec cp {} "$RUNNER_TEMP/vybe-apk/" \;
-
-          if ! find "$RUNNER_TEMP/vybe-apk" -name '*.apk' \
-            -type f | grep -q .; then
-            echo "ERROR: Build finished without a debug APK."
-            exit 1
-          fi
-
-          ls -lh "$RUNNER_TEMP/vybe-apk"
-
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: VYBE-debug-APK
-          path: ${{ runner.temp }}/vybe-apk/*.apk
+          path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
