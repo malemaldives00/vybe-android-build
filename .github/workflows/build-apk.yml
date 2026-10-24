@@ -8,16 +8,20 @@ on:
       - "**.zip"
       - ".github/workflows/build-apk.yml"
 
+permissions:
+  contents: read
+
 jobs:
   build:
-    runs-on: ubuntu-latest
+    name: Build Android APK
+    runs-on: ubuntu-24.04
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v5
 
-      - name: Set up Java
-        uses: actions/setup-java@v4
+      - name: Set up Java 17
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
@@ -25,8 +29,10 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Install SDK packages
+      - name: Install Android SDK packages
+        shell: bash
         run: |
+          set -euo pipefail
           sdkmanager --install \
             "platform-tools" \
             "platforms;android-35" \
@@ -37,35 +43,63 @@ jobs:
         with:
           gradle-version: "8.7"
 
-      - name: Select VYBE project ZIP
+      - name: Find and extract VYBE project
         shell: bash
         run: |
           set -euo pipefail
 
-          for zipfile in \
-            "VYBE_CP_Friend_Click_Back_Repaired.zip" \
-            "VYBE_Android_Project_Source_BackButton_Checked.zip" \
-            "VYBE_Android_AudioRoom_Fix_Source.zip" \
+          candidates=(
+            "VYBE_CP_Friend_Click_Back_Repaired.zip"
+            "VYBE_Android_Project_Source_BackButton_Checked.zip"
+            "VYBE_Android_AudioRoom_Fix_Source.zip"
             "VYBE_Android_Project.zip"
-          do
-            if [ ! -f "$zipfile" ]; then
+          )
+
+          mkdir -p "$RUNNER_TEMP/vybe-project"
+          found="false"
+
+          for archive in "${candidates[@]}"; do
+            if [ ! -f "$archive" ]; then
               continue
             fi
 
-            rm -rf /tmp/vybe-check
-            mkdir -p /tmp/vybe-check
-            unzip -q "$zipfile" -d /tmp/vybe-check
+            echo "Checking archive: $archive"
+            rm -rf "$RUNNER_TEMP/vybe-project"
+            mkdir -p "$RUNNER_TEMP/vybe-project"
 
-            if find /tmp/vybe-check -name settings.gradle -o -name settings.gradle.kts | grep -q . &&
-               find /tmp/vybe-check -path '*/app/src/main/AndroidManifest.xml' | grep -q .; then
-              echo "Selected ZIP: $zipfile"
-              echo "PROJECT_DIR=$(find /tmp/vybe-check -name settings.gradle -o -name settings.gradle.kts | head -n 1 | xargs dirname)" >> "$GITHUB_ENV"
+            if ! unzip -q "$archive" -d "$RUNNER_TEMP/vybe-project"; then
+              echo "Could not extract $archive"
+              continue
+            fi
+
+            settings_file="$(
+              find "$RUNNER_TEMP/vybe-project" \
+                -type f \
+                \( -name settings.gradle -o -name settings.gradle.kts \) \
+                -print -quit
+            )"
+
+            manifest_file="$(
+              find "$RUNNER_TEMP/vybe-project" \
+                -path '*/app/src/main/AndroidManifest.xml' \
+                -type f -print -quit
+            )"
+
+            if [ -n "$settings_file" ] && [ -n "$manifest_file" ]; then
+              project_dir="$(dirname "$settings_file")"
+              echo "PROJECT_DIR=$project_dir" >> "$GITHUB_ENV"
+              echo "Selected archive: $archive"
+              echo "Project directory: $project_dir"
+              found="true"
               break
             fi
+
+            echo "Not a complete Android project: $archive"
           done
 
-          if [ -z "${PROJECT_DIR:-}" ] && [ ! -f "$GITHUB_ENV" ]; then
-            echo "No valid Android project ZIP found."
+          if [ "$found" != "true" ]; then
+            echo "ERROR: No valid Android project found in the listed ZIP files."
+            echo "Check that a ZIP contains settings.gradle and app/src/main/AndroidManifest.xml."
             exit 1
           fi
 
@@ -76,9 +110,27 @@ jobs:
           cd "$PROJECT_DIR"
           gradle assembleDebug --stacktrace
 
-      - name: Upload APK
+      - name: Find generated APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/vybe-apk"
+          find "$PROJECT_DIR" \
+            -type f \
+            -path '*/build/outputs/apk/debug/*.apk' \
+            -exec cp {} "$RUNNER_TEMP/vybe-apk/" \;
+
+          if ! find "$RUNNER_TEMP/vybe-apk" -type f -name '*.apk' | grep -q .; then
+            echo "ERROR: APK was not generated."
+            exit 1
+          fi
+
+          ls -lh "$RUNNER_TEMP/vybe-apk"
+
+      - name: Upload VYBE APK
         uses: actions/upload-artifact@v4
         with:
           name: VYBE-debug-APK
-          path: "**/build/outputs/apk/debug/*.apk"
+          path: ${{ runner.temp }}/vybe-apk/*.apk
           if-no-files-found: error
+          retention-days: 7
