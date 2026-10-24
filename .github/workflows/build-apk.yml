@@ -26,30 +26,42 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
-        with:
-          packages: |
-            platform-tools
-            platforms;android-35
-            build-tools;35.0.0
-          accept-android-sdk-licenses: true
+
+      - name: Install Android SDK packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdkmanager --install "platform-tools" "platforms;android-35" "build-tools;35.0.0"
 
       - name: Find and extract Android project
         shell: bash
         run: |
           set -euo pipefail
+
           ARCHIVE="VYBE_CP_Friend_Click_Back_Repaired.zip"
-          test -f "$ARCHIVE" || {
-            echo "Project ZIP not found"
+
+          if [ ! -f "$ARCHIVE" ]; then
+            echo "ERROR: Project ZIP not found: $ARCHIVE"
             exit 1
-          }
+          fi
+
           mkdir -p "$RUNNER_TEMP/vybe-source"
           unzip -q "$ARCHIVE" -d "$RUNNER_TEMP/vybe-source"
+
           SETTINGS="$(find "$RUNNER_TEMP/vybe-source" -type f \( -name settings.gradle -o -name settings.gradle.kts \) -print -quit)"
-          test -n "$SETTINGS" || {
-            echo "Gradle settings file not found"
+
+          if [ -z "$SETTINGS" ]; then
+            echo "ERROR: Gradle settings file not found in ZIP."
             exit 1
-          }
+          fi
+
           PROJECT_DIR="$(dirname "$SETTINGS")"
+
+          if [ ! -f "$PROJECT_DIR/app/build.gradle" ] && [ ! -f "$PROJECT_DIR/app/build.gradle.kts" ]; then
+            echo "ERROR: App Gradle file not found."
+            exit 1
+          fi
+
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
       - name: Set up Gradle
@@ -57,7 +69,7 @@ jobs:
         with:
           gradle-version: "8.7"
 
-      - name: Build APK
+      - name: Build debug APK
         shell: bash
         run: |
           set -euo pipefail
