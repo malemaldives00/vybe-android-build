@@ -4,27 +4,16 @@ name: Build VYBE APK
 on:
   workflow_dispatch:
   push:
-    branches:
-      - main
     paths:
+      - "**.zip"
       - ".github/workflows/build-apk.yml"
-      - "**/*.zip"
-      - "app/**"
-      - "settings.gradle"
-      - "settings.gradle.kts"
-      - "build.gradle"
-      - "build.gradle.kts"
-
-permissions:
-  contents: read
 
 jobs:
   build:
-    name: Build Android APK
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Set up Java
@@ -36,10 +25,8 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Install Android SDK packages
-        shell: bash
+      - name: Install SDK packages
         run: |
-          set -euo pipefail
           sdkmanager --install \
             "platform-tools" \
             "platforms;android-35" \
@@ -50,102 +37,48 @@ jobs:
         with:
           gradle-version: "8.7"
 
-      - name: Find Android project
+      - name: Select VYBE project ZIP
         shell: bash
         run: |
           set -euo pipefail
 
-          ROOT="$GITHUB_WORKSPACE"
-          PROJECT=""
-
-          if { [ -f "$ROOT/settings.gradle" ] || [ -f "$ROOT/settings.gradle.kts" ]; } &&
-             [ -f "$ROOT/app/src/main/AndroidManifest.xml" ]; then
-            PROJECT="$ROOT"
-          else
-            mkdir -p "$ROOT/source"
-            FOUND=""
-
-            while IFS= read -r -d '' ZIP; do
-              if unzip -Z1 "$ZIP" |
-                   grep -Eq '(^|/)settings\.gradle(\.kts)?$' &&
-                 unzip -Z1 "$ZIP" |
-                   grep -Eq '(^|/)app/src/main/AndroidManifest\.xml$'; then
-                FOUND="$ZIP"
-                break
-              fi
-            done < <(
-              find "$ROOT" -maxdepth 3 -type f \
-                -iname '*.zip' \
-                -not -path "$ROOT/source/*" \
-                -print0
-            )
-
-            if [ -z "$FOUND" ]; then
-              echo "::error::No Android project ZIP found."
-              find "$ROOT" -maxdepth 4 -type f | head -200
-              exit 1
+          for zipfile in \
+            "VYBE_CP_Friend_Click_Back_Repaired.zip" \
+            "VYBE_Android_Project_Source_BackButton_Checked.zip" \
+            "VYBE_Android_AudioRoom_Fix_Source.zip" \
+            "VYBE_Android_Project.zip"
+          do
+            if [ ! -f "$zipfile" ]; then
+              continue
             fi
 
-            echo "Extracting: $FOUND"
-            unzip -q "$FOUND" -d "$ROOT/source"
+            rm -rf /tmp/vybe-check
+            mkdir -p /tmp/vybe-check
+            unzip -q "$zipfile" -d /tmp/vybe-check
 
-            while IFS= read -r -d '' FILE; do
-              DIR="$(dirname "$FILE")"
-              if [ -f "$DIR/app/src/main/AndroidManifest.xml" ]; then
-                PROJECT="$DIR"
-                break
-              fi
-            done < <(
-              find "$ROOT/source" -type f \
-                \( -name settings.gradle -o -name settings.gradle.kts \) \
-                -print0
-            )
-          fi
+            if find /tmp/vybe-check -name settings.gradle -o -name settings.gradle.kts | grep -q . &&
+               find /tmp/vybe-check -path '*/app/src/main/AndroidManifest.xml' | grep -q .; then
+              echo "Selected ZIP: $zipfile"
+              echo "PROJECT_DIR=$(find /tmp/vybe-check -name settings.gradle -o -name settings.gradle.kts | head -n 1 | xargs dirname)" >> "$GITHUB_ENV"
+              break
+            fi
+          done
 
-          if [ -z "$PROJECT" ]; then
-            echo "::error::Could not locate a complete Android project."
+          if [ -z "${PROJECT_DIR:-}" ] && [ ! -f "$GITHUB_ENV" ]; then
+            echo "No valid Android project ZIP found."
             exit 1
           fi
-
-          echo "PROJECT_DIR=$PROJECT" >> "$GITHUB_ENV"
-          echo "Project found: $PROJECT"
 
       - name: Build debug APK
         shell: bash
         run: |
           set -euo pipefail
           cd "$PROJECT_DIR"
-
-          if [ -f gradlew ]; then
-            chmod +x gradlew
-            ./gradlew --no-daemon assembleDebug
-          else
-            gradle --no-daemon assembleDebug
-          fi
-
-      - name: Collect APK
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p "$GITHUB_WORKSPACE/output"
-
-          APK="$(find "$PROJECT_DIR" \
-            -type f \
-            -path '*/build/outputs/apk/*/*.apk' \
-            -name '*debug*.apk' \
-            -print -quit)"
-
-          if [ -z "$APK" ]; then
-            echo "::error::Debug APK was not generated."
-            exit 1
-          fi
-
-          cp "$APK" "$GITHUB_WORKSPACE/output/VYBE-debug.apk"
+          gradle assembleDebug --stacktrace
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: VYBE-debug-APK
-          path: output/VYBE-debug.apk
+          path: "**/build/outputs/apk/debug/*.apk"
           if-no-files-found: error
-          retention-days: 7
