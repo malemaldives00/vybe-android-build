@@ -31,11 +31,15 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
-        with:
-          packages: |
-            platform-tools
-            platforms;android-35
-            build-tools;35.0.0
+
+      - name: Install Android SDK packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdkmanager --install \
+            "platform-tools" \
+            "platforms;android-35" \
+            "build-tools;35.0.0"
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -45,29 +49,38 @@ jobs:
         run: |
           set -euo pipefail
 
-          mkdir -p source
+          mkdir -p "$GITHUB_WORKSPACE/source"
 
           FOUND=""
 
           while IFS= read -r -d '' ZIP; do
             echo "Checking ZIP: $ZIP"
 
-            if unzip -Z1 "$ZIP" | grep -Eq '(^|/)settings\.gradle(\.kts)?$' &&
-               unzip -Z1 "$ZIP" | grep -Eq '(^|/)app/src/main/AndroidManifest\.xml$'; then
+            if unzip -Z1 "$ZIP" |
+              grep -Eq '(^|/)settings\.gradle(\.kts)?$' &&
+              unzip -Z1 "$ZIP" |
+              grep -Eq '(^|/)app/src/main/AndroidManifest\.xml$'; then
               FOUND="$ZIP"
               break
             fi
-          done < <(find . -maxdepth 2 -type f -iname '*.zip' -print0)
+          done < <(
+            find "$GITHUB_WORKSPACE" \
+              -maxdepth 2 \
+              -type f \
+              -iname '*.zip' \
+              -not -path '*/source/*' \
+              -print0
+          )
 
           if [ -z "$FOUND" ]; then
-            echo "::error::No Android project ZIP found. The ZIP must contain settings.gradle or settings.gradle.kts and app/src/main/AndroidManifest.xml."
-            echo "Repository files:"
-            find . -maxdepth 3 -type f | head -200
+            echo "::error::No valid Android project ZIP found."
+            echo "ZIP must contain settings.gradle and app/src/main/AndroidManifest.xml."
+            find "$GITHUB_WORKSPACE" -maxdepth 3 -type f
             exit 1
           fi
 
-          echo "Found Android project ZIP: $FOUND"
-          unzip -q "$FOUND" -d source
+          echo "Found project ZIP: $FOUND"
+          unzip -q "$FOUND" -d "$GITHUB_WORKSPACE/source"
 
       - name: Locate Android project
         shell: bash
@@ -84,25 +97,26 @@ jobs:
               break
             fi
           done < <(
-            find source -type f \
-              \( -name settings.gradle -o -name settings.gradle.kts \) \
+            find "$GITHUB_WORKSPACE/source" \
+              -type f \
+              \( -name settings.gradle \
+              -o -name settings.gradle.kts \) \
               -print0
           )
 
           if [ -z "$PROJECT" ]; then
-            echo "::error::Could not locate a complete Android Gradle project inside the ZIP."
-            find source -maxdepth 5 -type f | head -200
+            echo "::error::Android project structure is incomplete."
+            find "$GITHUB_WORKSPACE/source" -maxdepth 6 -type f
             exit 1
           fi
 
-          echo "PROJECT_DIR=$GITHUB_WORKSPACE/$PROJECT" >> "$GITHUB_ENV"
-          echo "Android project: $PROJECT"
+          echo "PROJECT_DIR=$PROJECT" >> "$GITHUB_ENV"
+          echo "Project directory: $PROJECT"
 
       - name: Build debug APK
         shell: bash
         run: |
           set -euo pipefail
-
           cd "$PROJECT_DIR"
 
           if [ -f gradlew ]; then
@@ -119,12 +133,14 @@ jobs:
 
           mkdir -p "$GITHUB_WORKSPACE/output"
 
-          APK="$(find "$PROJECT_DIR" -type f \
+          APK="$(find "$PROJECT_DIR" \
+            -type f \
             -path '*/build/outputs/apk/*/*.apk' \
-            -name '*debug*.apk' -print -quit)"
+            -name '*debug*.apk' \
+            -print -quit)"
 
           if [ -z "$APK" ]; then
-            echo "::error::Build finished without a debug APK."
+            echo "::error::Debug APK was not generated."
             find "$PROJECT_DIR" -type f -name '*.apk'
             exit 1
           fi
