@@ -1,9 +1,11 @@
+
 name: Build VYBE APK
 
 on:
   workflow_dispatch:
   push:
     paths:
+      - 'VYBE_Family_Create_Join_Explore_Source_Checked.zip'
       - 'VYBE_Android_AudioRoom_Fix_Source.zip'
       - 'VYBE_Android_Source.zip'
       - 'VYBE_Android_Project_Source_BackButton_Checked.zip'
@@ -43,7 +45,9 @@ jobs:
           set -euo pipefail
           mkdir -p source
 
-          if [ -f VYBE_Android_Project_Source_BackButton_Checked.zip ]; then
+          if [ -f VYBE_Family_Create_Join_Explore_Source_Checked.zip ]; then
+            ZIP_FILE="VYBE_Family_Create_Join_Explore_Source_Checked.zip"
+          elif [ -f VYBE_Android_Project_Source_BackButton_Checked.zip ]; then
             ZIP_FILE="VYBE_Android_Project_Source_BackButton_Checked.zip"
           elif [ -f VYBE_Android_AudioRoom_Fix_Source.zip ]; then
             ZIP_FILE="VYBE_Android_AudioRoom_Fix_Source.zip"
@@ -72,6 +76,56 @@ jobs:
           echo "Using project directory: $PROJECT_DIR"
           ls -la "$PROJECT_DIR"
 
+      - name: Add VYBE purple and gold app icon
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          RES="$PROJECT_DIR/app/src/main/res"
+          MANIFEST="$PROJECT_DIR/app/src/main/AndroidManifest.xml"
+
+          mkdir -p "$RES/drawable"
+
+          cat > "$RES/drawable/ic_vybe_logo.xml" <<'EOF'
+          <vector xmlns:android="http://schemas.android.com/apk/res/android"
+              android:width="108dp"
+              android:height="108dp"
+              android:viewportWidth="108"
+              android:viewportHeight="108">
+              <path
+                  android:fillColor="#211044"
+                  android:pathData="M0,0h108v108h-108z"/>
+              <path
+                  android:fillColor="#F2C76B"
+                  android:pathData="M22,31 L33,31 L54,76 L75,31 L86,31 L60,84 L48,84 Z"/>
+              <path
+                  android:fillColor="#F2C76B"
+                  android:pathData="M36,23 L42,12 L53,21 L64,12 L71,23 L71,28 L36,28 Z"/>
+              <path
+                  android:fillColor="#211044"
+                  android:pathData="M42,22 L45,18 L53,25 L63,18 L66,22 L66,24 L42,24 Z"/>
+          </vector>
+          EOF
+
+          python3 - "$MANIFEST" <<'PY'
+          import sys
+          import xml.etree.ElementTree as ET
+
+          path = sys.argv[1]
+          android = "{http://schemas.android.com/apk/res/android}"
+
+          tree = ET.parse(path)
+          root = tree.getroot()
+          app = root.find("application")
+
+          if app is None:
+              raise SystemExit("ERROR: No application tag in AndroidManifest.xml")
+
+          app.set(android + "icon", "@drawable/ic_vybe_logo")
+          tree.write(path, encoding="utf-8", xml_declaration=True)
+          print("VYBE launcher icon configured.")
+          PY
+
       - name: Build APK
         run: gradle --no-daemon -p "$PROJECT_DIR" assembleDebug
 
@@ -80,6 +134,5 @@ jobs:
         with:
           name: vybe-debug-apk
           path: |
-            source/app/build/outputs/apk/debug/app-debug.apk
-            source/VYBE_Android/app/build/outputs/apk/debug/app-debug.apk
+            source/**/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
