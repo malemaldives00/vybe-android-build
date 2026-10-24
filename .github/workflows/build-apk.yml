@@ -8,8 +8,12 @@ on:
       - main
     paths:
       - ".github/workflows/build-apk.yml"
-      - "*.zip"
-      - "vybe_logo.png"
+      - "**/*.zip"
+      - "app/**"
+      - "settings.gradle"
+      - "settings.gradle.kts"
+      - "build.gradle"
+      - "build.gradle.kts"
 
 permissions:
   contents: read
@@ -43,75 +47,68 @@ jobs:
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.7"
 
-      - name: Find Android project ZIP
+      - name: Find Android project
         shell: bash
         run: |
           set -euo pipefail
 
-          mkdir -p "$GITHUB_WORKSPACE/source"
-
-          FOUND=""
-
-          while IFS= read -r -d '' ZIP; do
-            echo "Checking ZIP: $ZIP"
-
-            if unzip -Z1 "$ZIP" |
-              grep -Eq '(^|/)settings\.gradle(\.kts)?$' &&
-              unzip -Z1 "$ZIP" |
-              grep -Eq '(^|/)app/src/main/AndroidManifest\.xml$'; then
-              FOUND="$ZIP"
-              break
-            fi
-          done < <(
-            find "$GITHUB_WORKSPACE" \
-              -maxdepth 2 \
-              -type f \
-              -iname '*.zip' \
-              -not -path '*/source/*' \
-              -print0
-          )
-
-          if [ -z "$FOUND" ]; then
-            echo "::error::No valid Android project ZIP found."
-            echo "ZIP must contain settings.gradle and app/src/main/AndroidManifest.xml."
-            find "$GITHUB_WORKSPACE" -maxdepth 3 -type f
-            exit 1
-          fi
-
-          echo "Found project ZIP: $FOUND"
-          unzip -q "$FOUND" -d "$GITHUB_WORKSPACE/source"
-
-      - name: Locate Android project
-        shell: bash
-        run: |
-          set -euo pipefail
-
+          ROOT="$GITHUB_WORKSPACE"
           PROJECT=""
 
-          while IFS= read -r -d '' FILE; do
-            DIR="$(dirname "$FILE")"
+          if { [ -f "$ROOT/settings.gradle" ] || [ -f "$ROOT/settings.gradle.kts" ]; } &&
+             [ -f "$ROOT/app/src/main/AndroidManifest.xml" ]; then
+            PROJECT="$ROOT"
+          else
+            mkdir -p "$ROOT/source"
+            FOUND=""
 
-            if [ -f "$DIR/app/src/main/AndroidManifest.xml" ]; then
-              PROJECT="$DIR"
-              break
+            while IFS= read -r -d '' ZIP; do
+              if unzip -Z1 "$ZIP" |
+                   grep -Eq '(^|/)settings\.gradle(\.kts)?$' &&
+                 unzip -Z1 "$ZIP" |
+                   grep -Eq '(^|/)app/src/main/AndroidManifest\.xml$'; then
+                FOUND="$ZIP"
+                break
+              fi
+            done < <(
+              find "$ROOT" -maxdepth 3 -type f \
+                -iname '*.zip' \
+                -not -path "$ROOT/source/*" \
+                -print0
+            )
+
+            if [ -z "$FOUND" ]; then
+              echo "::error::No Android project ZIP found."
+              find "$ROOT" -maxdepth 4 -type f | head -200
+              exit 1
             fi
-          done < <(
-            find "$GITHUB_WORKSPACE/source" \
-              -type f \
-              \( -name settings.gradle \
-              -o -name settings.gradle.kts \) \
-              -print0
-          )
+
+            echo "Extracting: $FOUND"
+            unzip -q "$FOUND" -d "$ROOT/source"
+
+            while IFS= read -r -d '' FILE; do
+              DIR="$(dirname "$FILE")"
+              if [ -f "$DIR/app/src/main/AndroidManifest.xml" ]; then
+                PROJECT="$DIR"
+                break
+              fi
+            done < <(
+              find "$ROOT/source" -type f \
+                \( -name settings.gradle -o -name settings.gradle.kts \) \
+                -print0
+            )
+          fi
 
           if [ -z "$PROJECT" ]; then
-            echo "::error::Android project structure is incomplete."
-            find "$GITHUB_WORKSPACE/source" -maxdepth 6 -type f
+            echo "::error::Could not locate a complete Android project."
             exit 1
           fi
 
           echo "PROJECT_DIR=$PROJECT" >> "$GITHUB_ENV"
-          echo "Project directory: $PROJECT"
+          echo "Project found: $PROJECT"
 
       - name: Build debug APK
         shell: bash
@@ -130,7 +127,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
           mkdir -p "$GITHUB_WORKSPACE/output"
 
           APK="$(find "$PROJECT_DIR" \
@@ -141,12 +137,10 @@ jobs:
 
           if [ -z "$APK" ]; then
             echo "::error::Debug APK was not generated."
-            find "$PROJECT_DIR" -type f -name '*.apk'
             exit 1
           fi
 
           cp "$APK" "$GITHUB_WORKSPACE/output/VYBE-debug.apk"
-          echo "APK collected successfully."
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
