@@ -40,6 +40,8 @@ jobs:
           ARCHIVE=""
 
           for file in \
+            "VYBE_CP_Friend_Click_Back_Repaired_with_MY_EXACT_Icon (2).zip" \
+            "VYBE_CP_Friend_Click_Back_Repaired_with_MY_EXACT_Icon.zip" \
             "VYBE_CP_Friend_Click_Back_Repaired.zip" \
             "VYBE_Android_Project_Source_BackButton_Checked.zip" \
             "VYBE_Android_AudioRoom_Fix_Source.zip" \
@@ -58,27 +60,37 @@ jobs:
             exit 1
           fi
 
+          echo "Using archive: $ARCHIVE"
           unzip -q "$ARCHIVE" -d "$RUNNER_TEMP/vybe-source"
 
           SETTINGS="$(find "$RUNNER_TEMP/vybe-source" -type f \( -name settings.gradle -o -name settings.gradle.kts \) -print -quit)"
+
           if [ -z "$SETTINGS" ]; then
             echo "ERROR: settings.gradle not found inside ZIP."
             exit 1
           fi
 
           PROJECT_DIR="$(dirname "$SETTINGS")"
+
           if [ ! -f "$PROJECT_DIR/app/build.gradle" ] && [ ! -f "$PROJECT_DIR/app/build.gradle.kts" ]; then
             echo "ERROR: App Gradle file not found."
             exit 1
           fi
 
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-          echo "Using archive: $ARCHIVE"
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.7"
+
+      - name: Check launcher icon resources
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Checking launcher icon files..."
+          find "$PROJECT_DIR/app/src/main/res" -type f \
+            \( -name 'ic_launcher*' -o -name '*launcher*' \) -print
 
       - name: Build debug APK
         shell: bash
