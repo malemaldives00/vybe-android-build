@@ -1,1 +1,95 @@
 
+name: Build VYBE APK
+
+"on": [push, workflow_dispatch]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install Android SDK packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager -print -quit)"
+          if [ -z "$SDKMANAGER" ]; then
+            echo "ERROR: Android SDK manager not found"
+            exit 1
+          fi
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" --install "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Find and extract Android project
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/vybe-source"
+          ARCHIVE=""
+
+          for file in \
+            "VYBE_CP_Friend_Click_Back_Repaired.zip" \
+            "VYBE_Android_Project_Source_BackButton_Checked.zip" \
+            "VYBE_Android_AudioRoom_Fix_Source.zip" \
+            "VYBE_Android_Project.zip" \
+            "VYBE_Login_Signup_Firebase_Configured.zip" \
+            "VYBE_Login_Signup_Firebase_Configured (1).zip"
+          do
+            if [ -f "$file" ]; then
+              ARCHIVE="$file"
+              break
+            fi
+          done
+
+          if [ -z "$ARCHIVE" ]; then
+            echo "ERROR: No supported VYBE project ZIP found in repository root."
+            exit 1
+          fi
+
+          unzip -q "$ARCHIVE" -d "$RUNNER_TEMP/vybe-source"
+
+          SETTINGS="$(find "$RUNNER_TEMP/vybe-source" -type f \( -name settings.gradle -o -name settings.gradle.kts \) -print -quit)"
+          if [ -z "$SETTINGS" ]; then
+            echo "ERROR: settings.gradle not found inside ZIP."
+            exit 1
+          fi
+
+          PROJECT_DIR="$(dirname "$SETTINGS")"
+          if [ ! -f "$PROJECT_DIR/app/build.gradle" ] && [ ! -f "$PROJECT_DIR/app/build.gradle.kts" ]; then
+            echo "ERROR: App Gradle file not found."
+            exit 1
+          fi
+
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+          echo "Using archive: $ARCHIVE"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.7"
+
+      - name: Build debug APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          gradle assembleDebug --stacktrace
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: VYBE-debug-APK
+          path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
