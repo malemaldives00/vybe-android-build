@@ -1,8 +1,12 @@
-name: Build VYBE APK
+name: Build VYBE Firebase APK
 
 on:
-  push:
   workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/build.yml"
+      - "VYBE_Login_Signup_Firebase_Configured.zip"
+      - "VYBE_Login_Signup_Firebase_Configured (1).zip"
 
 permissions:
   contents: read
@@ -26,12 +30,10 @@ jobs:
         run: |
           set -euo pipefail
           SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager -print -quit)"
-
-          if [ -z "$SDKMANAGER" ]; then
-            echo "ERROR: Android SDK manager not found"
+          test -n "$SDKMANAGER" || {
+            echo "Android SDK manager not found"
             exit 1
-          fi
-
+          }
           yes | "$SDKMANAGER" --licenses >/dev/null || true
           "$SDKMANAGER" --install \
             "platform-tools" \
@@ -42,13 +44,22 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          ARCHIVE=""
 
-          ARCHIVE="VYBE_Login_Signup_Firebase_Configured (1).zip"
+          for file in \
+            "VYBE_Login_Signup_Firebase_Configured.zip" \
+            "VYBE_Login_Signup_Firebase_Configured (1).zip"
+          do
+            if [ -f "$file" ]; then
+              ARCHIVE="$file"
+              break
+            fi
+          done
 
-          if [ ! -f "$ARCHIVE" ]; then
-            echo "ERROR: $ARCHIVE not found in repository root"
+          test -n "$ARCHIVE" || {
+            echo "VYBE Firebase ZIP not found in repository root"
             exit 1
-          fi
+          }
 
           mkdir -p "$RUNNER_TEMP/vybe-source"
           unzip -q "$ARCHIVE" -d "$RUNNER_TEMP/vybe-source"
@@ -57,22 +68,17 @@ jobs:
             \( -name settings.gradle -o -name settings.gradle.kts \) \
             -print -quit)"
 
-          if [ -z "$SETTINGS" ]; then
-            echo "ERROR: Gradle settings file not found"
+          test -n "$SETTINGS" || {
+            echo "Gradle settings file not found"
             exit 1
-          fi
+          }
 
           PROJECT_DIR="$(dirname "$SETTINGS")"
 
-          if [ ! -f "$PROJECT_DIR/app/src/main/assets/index.html" ]; then
-            echo "ERROR: VYBE app HTML not found"
+          test -f "$PROJECT_DIR/app/google-services.json" || {
+            echo "google-services.json missing from app folder"
             exit 1
-          fi
-
-          if [ ! -f "$PROJECT_DIR/app/google-services.json" ]; then
-            echo "ERROR: Firebase configuration not found in ZIP"
-            exit 1
-          fi
+          }
 
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
@@ -81,7 +87,7 @@ jobs:
         with:
           gradle-version: "8.7"
 
-      - name: Build VYBE APK
+      - name: Build APK
         shell: bash
         run: |
           set -euo pipefail
@@ -91,6 +97,6 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: VYBE-debug-APK
+          name: VYBE-Firebase-debug-APK
           path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
