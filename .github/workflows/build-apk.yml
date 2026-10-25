@@ -52,7 +52,7 @@ steps:
 
       if [ ! -f "$ARCHIVE" ]; then
         echo "ERROR: ZIP not found: $ARCHIVE"
-        find . -maxdepth 2 -type f -iname '*.zip' -print
+        find . -maxdepth 3 -type f -iname '*.zip' -print
         exit 1
       fi
 
@@ -69,7 +69,7 @@ steps:
       PROJECT_DIR="$(dirname "$SETTINGS_FILE")"
 
       if [ ! -f "$PROJECT_DIR/app/build.gradle" ] && [ ! -f "$PROJECT_DIR/app/build.gradle.kts" ]; then
-        echo "ERROR: app/build.gradle not found inside ZIP"
+        echo "ERROR: app Gradle file not found"
         exit 1
       fi
 
@@ -82,7 +82,8 @@ steps:
       if [ -f app/google-services.json ]; then
         echo "Firebase configuration found"
       else
-        echo "WARNING: app/google-services.json is missing"
+        echo "ERROR: app/google-services.json is missing"
+        exit 1
       fi
 
   - name: Build debug APK
@@ -99,7 +100,6 @@ steps:
       fi
 
   - name: Upload APK
-    if: success()
     uses: actions/upload-artifact@v4
     with:
       name: VYBE-Login-Signup-APK
