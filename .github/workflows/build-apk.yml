@@ -1,6 +1,6 @@
 name: Build VYBE APK
 
-on:
+"on":
 workflow_dispatch:
 push:
 paths:
@@ -48,8 +48,8 @@ steps:
       ARCHIVE="VYBE_Login_Signup_Firebase_Configured.zip"
 
       if [ ! -f "$ARCHIVE" ]; then
-        echo "ERROR: $ARCHIVE not found in repository root."
-        echo "ZIP files found:"
+        echo "ERROR: ZIP file not found: $ARCHIVE"
+        echo "ZIP files in repository:"
         find . -maxdepth 2 -type f -iname "*.zip" -print
         exit 1
       fi
@@ -57,34 +57,31 @@ steps:
       mkdir -p extracted
       unzip -oq "$ARCHIVE" -d extracted
 
-      PROJECT_SETTINGS="$(find extracted -type f \( -name settings.gradle -o -name settings.gradle.kts \) -print -quit)"
+      SETTINGS_FILE="$(find extracted -type f \( -name settings.gradle -o -name settings.gradle.kts \) -print -quit)"
 
-      if [ -z "$PROJECT_SETTINGS" ]; then
-        echo "ERROR: settings.gradle or settings.gradle.kts not found in ZIP."
+      if [ -z "$SETTINGS_FILE" ]; then
+        echo "ERROR: Android project settings.gradle not found."
         exit 1
       fi
 
-      PROJECT_DIR="$(dirname "$PROJECT_SETTINGS")"
+      PROJECT_DIR="$(dirname "$SETTINGS_FILE")"
 
       if [ ! -f "$PROJECT_DIR/app/build.gradle" ] && [ ! -f "$PROJECT_DIR/app/build.gradle.kts" ]; then
-        echo "ERROR: Android app Gradle file not found in $PROJECT_DIR/app"
+        echo "ERROR: app/build.gradle or app/build.gradle.kts not found."
         exit 1
       fi
 
       echo "dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
-      echo "Android project found: $PROJECT_DIR"
+      echo "Project directory: $PROJECT_DIR"
 
   - name: Check Firebase configuration
     working-directory: ${{ steps.project.outputs.dir }}
     shell: bash
     run: |
-      set -euo pipefail
-
-      if [ ! -f "app/google-services.json" ]; then
-        echo "WARNING: app/google-services.json is missing."
-        echo "Firebase may not work until the configuration is added."
+      if [ -f "app/google-services.json" ]; then
+        echo "Firebase configuration found."
       else
-        echo "Firebase configuration file found."
+        echo "WARNING: app/google-services.json is missing."
       fi
 
   - name: Build debug APK
