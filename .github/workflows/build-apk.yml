@@ -5,8 +5,8 @@ on:
   push:
     paths:
       - ".github/workflows/build.yml"
-      - "VYBE_Login_Signup_Firebase_Configured.zip"
-      - "VYBE_Login_Signup_Firebase_Configured (1).zip"
+      - "*.zip"
+      - "google-services.json"
 
 permissions:
   contents: read
@@ -30,25 +30,25 @@ jobs:
         run: |
           set -euo pipefail
           SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager -print -quit)"
-          test -n "$SDKMANAGER" || {
-            echo "Android SDK manager not found"
-            exit 1
-          }
+          test -n "$SDKMANAGER"
           yes | "$SDKMANAGER" --licenses >/dev/null || true
           "$SDKMANAGER" --install \
             "platform-tools" \
             "platforms;android-35" \
             "build-tools;35.0.0"
 
-      - name: Extract VYBE project
+      - name: Find and extract VYBE project
         shell: bash
         run: |
           set -euo pipefail
-          ARCHIVE=""
 
+          ARCHIVE=""
           for file in \
+            "VYBE_Login_Signup_FIXED (1).zip" \
+            "VYBE_Login_Signup_FIXED.zip" \
+            "VYBE_Login_Signup_Firebase_Configured (1).zip" \
             "VYBE_Login_Signup_Firebase_Configured.zip" \
-            "VYBE_Login_Signup_Firebase_Configured (1).zip"
+            "VYBE_CP_Friend_Click_Back_Repaired.zip"
           do
             if [ -f "$file" ]; then
               ARCHIVE="$file"
@@ -56,11 +56,13 @@ jobs:
             fi
           done
 
-          test -n "$ARCHIVE" || {
-            echo "VYBE Firebase ZIP not found in repository root"
+          if [ -z "$ARCHIVE" ]; then
+            echo "ERROR: VYBE ZIP not found. Repository files:"
+            ls -la
             exit 1
-          }
+          fi
 
+          echo "Using ZIP: $ARCHIVE"
           mkdir -p "$RUNNER_TEMP/vybe-source"
           unzip -q "$ARCHIVE" -d "$RUNNER_TEMP/vybe-source"
 
@@ -69,16 +71,22 @@ jobs:
             -print -quit)"
 
           test -n "$SETTINGS" || {
-            echo "Gradle settings file not found"
+            echo "ERROR: Gradle settings file not found"
             exit 1
           }
 
           PROJECT_DIR="$(dirname "$SETTINGS")"
 
-          test -f "$PROJECT_DIR/app/google-services.json" || {
-            echo "google-services.json missing from app folder"
+          if [ -f "$GITHUB_WORKSPACE/google-services.json" ]; then
+            mkdir -p "$PROJECT_DIR/app"
+            cp "$GITHUB_WORKSPACE/google-services.json" \
+              "$PROJECT_DIR/app/google-services.json"
+          fi
+
+          if [ ! -f "$PROJECT_DIR/app/google-services.json" ]; then
+            echo "ERROR: google-services.json not found"
             exit 1
-          }
+          fi
 
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
