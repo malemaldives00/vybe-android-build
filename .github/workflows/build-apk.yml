@@ -40,25 +40,26 @@ jobs:
         run: |
           set -euo pipefail
 
-          ARCHIVE="VYBE_Login_Signup_Logo_Preserved.zip"
+          ARCHIVE="VYBE_Login_Signup_Code.zip"
 
           if [ ! -f "$ARCHIVE" ]; then
             echo "ERROR: Project ZIP not found: $ARCHIVE"
-            echo "Check the ZIP filename in your repository."
+            echo "Upload the ZIP to the repository root."
             exit 1
           fi
 
-          mkdir -p "$RUNNER_TEMP/vybe-source"
+          SOURCE_DIR="$RUNNER_TEMP/vybe-source"
+          mkdir -p "$SOURCE_DIR"
 
-          unzip -q "$ARCHIVE" \
-            -d "$RUNNER_TEMP/vybe-source"
+          unzip -q "$ARCHIVE" -d "$SOURCE_DIR"
 
-          PROJECT_DIR="$RUNNER_TEMP/vybe-source"
+          PROJECT_DIR="$SOURCE_DIR"
 
           if [ ! -f "$PROJECT_DIR/settings.gradle" ] && \
              [ ! -f "$PROJECT_DIR/settings.gradle.kts" ]; then
-            PROJECT_DIR="$(find "$RUNNER_TEMP/vybe-source" \
-              -type f \( -name settings.gradle \
+            PROJECT_DIR="$(find "$SOURCE_DIR" \
+              -type f \
+              \( -name settings.gradle \
               -o -name settings.gradle.kts \) \
               -print -quit | xargs -r dirname)"
           fi
@@ -71,7 +72,7 @@ jobs:
 
           if [ ! -f "$PROJECT_DIR/app/build.gradle" ] && \
              [ ! -f "$PROJECT_DIR/app/build.gradle.kts" ]; then
-            echo "ERROR: App Gradle file not found."
+            echo "ERROR: app/build.gradle or app/build.gradle.kts not found."
             exit 1
           fi
 
@@ -82,20 +83,18 @@ jobs:
 
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
-      - name: Verify app icon and login page
+      - name: Verify project files
         shell: bash
         run: |
           set -euo pipefail
           cd "$PROJECT_DIR"
 
-          test -f app/src/main/assets/index.html
-
-          if ! grep -q "ic_launcher" \
-            app/src/main/AndroidManifest.xml; then
-            echo "WARNING: Check launcher icon configuration."
+          if [ ! -f app/src/main/assets/index.html ]; then
+            echo "ERROR: app/src/main/assets/index.html not found."
+            exit 1
           fi
 
-          echo "Project files verified."
+          echo "VYBE project files verified."
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -105,7 +104,6 @@ jobs:
         run: |
           set -euo pipefail
           cd "$PROJECT_DIR"
-
           gradle --no-daemon assembleDebug
 
       - name: Upload VYBE APK
