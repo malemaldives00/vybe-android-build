@@ -1,4 +1,4 @@
- 
+
 name: Build VYBE APK
 
 on:
@@ -6,6 +6,9 @@ on:
   push:
     branches:
       - main
+    paths:
+      - 'VYBE_Login_Signup_FIXED.zip'
+      - '.github/workflows/build-apk.yml'
 
 permissions:
   contents: read
@@ -28,40 +31,46 @@ jobs:
         uses: android-actions/setup-android@v4
 
       - name: Install Android SDK packages
-        shell: bash
         run: |
-          set -euo pipefail
           sdkmanager --install \
             "platform-tools" \
             "platforms;android-35" \
             "build-tools;35.0.0"
 
-      - name: Find and extract Android project
+      - name: Extract VYBE Login Signup project
         shell: bash
         run: |
           set -euo pipefail
 
-          ARCHIVE="VYBE_CP_Friend_Click_Back_Repaired_with_MY_EXACT_Icon.zip"
+          ARCHIVE="VYBE_Login_Signup_FIXED.zip"
 
           if [ ! -f "$ARCHIVE" ]; then
-            echo "ERROR: Project ZIP not found: $ARCHIVE"
+            echo "ERROR: ZIP file not found: $ARCHIVE"
             exit 1
           fi
 
           mkdir -p "$RUNNER_TEMP/vybe-source"
+
           unzip -q "$ARCHIVE" -d "$RUNNER_TEMP/vybe-source"
 
-          SETTINGS="$(find "$RUNNER_TEMP/vybe-source" -type f \( -name settings.gradle -o -name settings.gradle.kts \) -print -quit)"
+          SETTINGS="$(find "$RUNNER_TEMP/vybe-source" \
+            -name settings.gradle \
+            -type f -print -quit)"
 
           if [ -z "$SETTINGS" ]; then
-            echo "ERROR: Gradle settings file not found."
+            echo "ERROR: settings.gradle not found"
             exit 1
           fi
 
           PROJECT_DIR="$(dirname "$SETTINGS")"
 
-          if [ ! -f "$PROJECT_DIR/app/build.gradle" ] && [ ! -f "$PROJECT_DIR/app/build.gradle.kts" ]; then
-            echo "ERROR: App Gradle file not found."
+          if [ ! -f "$PROJECT_DIR/app/build.gradle" ]; then
+            echo "ERROR: app/build.gradle not found"
+            exit 1
+          fi
+
+          if [ ! -f "$PROJECT_DIR/app/src/main/assets/index.html" ]; then
+            echo "ERROR: index.html not found"
             exit 1
           fi
 
@@ -75,11 +84,11 @@ jobs:
         run: |
           set -euo pipefail
           cd "$PROJECT_DIR"
-          gradle assembleDebug --stacktrace
+          gradle --no-daemon assembleDebug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: VYBE-debug-APK
+          name: VYBE-Login-Signup-APK
           path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
