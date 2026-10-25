@@ -1,11 +1,11 @@
 name: Build VYBE APK
 
-"on":
+'on':
 workflow_dispatch:
 push:
 paths:
-- "*.zip"
-- ".github/workflows/build-apk.yml"
+- '*.zip'
+- '.github/workflows/build-apk.yml'
 
 permissions:
 contents: read
@@ -19,11 +19,11 @@ steps:
   - name: Checkout repository
     uses: actions/checkout@v4
 
-  - name: Set up Java 17
+  - name: Set up Java
     uses: actions/setup-java@v4
     with:
       distribution: temurin
-      java-version: "17"
+      java-version: '17'
 
   - name: Set up Android SDK
     uses: android-actions/setup-android@v3
@@ -34,10 +34,10 @@ steps:
       sdkmanager "platforms;android-35"
       sdkmanager "build-tools;35.0.0"
 
-  - name: Install Gradle
+  - name: Set up Gradle
     uses: gradle/actions/setup-gradle@v4
     with:
-      gradle-version: "8.7"
+      gradle-version: '8.7'
 
   - name: Extract VYBE project
     id: project
@@ -48,8 +48,7 @@ steps:
       ARCHIVE="VYBE_Login_Signup_Firebase_Configured.zip"
 
       if [ ! -f "$ARCHIVE" ]; then
-        echo "ERROR: ZIP file not found: $ARCHIVE"
-        echo "ZIP files in repository:"
+        echo "ERROR: ZIP not found: $ARCHIVE"
         find . -maxdepth 2 -type f -iname "*.zip" -print
         exit 1
       fi
@@ -60,38 +59,36 @@ steps:
       SETTINGS_FILE="$(find extracted -type f \( -name settings.gradle -o -name settings.gradle.kts \) -print -quit)"
 
       if [ -z "$SETTINGS_FILE" ]; then
-        echo "ERROR: Android project settings.gradle not found."
+        echo "ERROR: settings.gradle not found in ZIP"
         exit 1
       fi
 
       PROJECT_DIR="$(dirname "$SETTINGS_FILE")"
 
       if [ ! -f "$PROJECT_DIR/app/build.gradle" ] && [ ! -f "$PROJECT_DIR/app/build.gradle.kts" ]; then
-        echo "ERROR: app/build.gradle or app/build.gradle.kts not found."
+        echo "ERROR: Android app Gradle file not found"
         exit 1
       fi
 
       echo "dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
-      echo "Project directory: $PROJECT_DIR"
 
-  - name: Check Firebase configuration
+  - name: Check Firebase file
     working-directory: ${{ steps.project.outputs.dir }}
-    shell: bash
     run: |
-      if [ -f "app/google-services.json" ]; then
-        echo "Firebase configuration found."
+      if [ -f app/google-services.json ]; then
+        echo "Firebase config found"
       else
-        echo "WARNING: app/google-services.json is missing."
+        echo "WARNING: app/google-services.json is missing"
       fi
 
-  - name: Build debug APK
+  - name: Build APK
     working-directory: ${{ steps.project.outputs.dir }}
     shell: bash
     run: |
       set -euo pipefail
 
-      if [ -f "./gradlew" ]; then
-        chmod +x ./gradlew
+      if [ -f gradlew ]; then
+        chmod +x gradlew
         ./gradlew --no-daemon assembleDebug
       else
         gradle --no-daemon assembleDebug
