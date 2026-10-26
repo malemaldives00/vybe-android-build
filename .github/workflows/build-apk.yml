@@ -1,4 +1,4 @@
-
+ 
 name: Build VYBE APK
 
 on:
@@ -28,11 +28,10 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
-        with:
-          packages: |
-            platform-tools
-            platforms;android-35
-            build-tools;35.0.0
+
+      - name: Install Android SDK packages
+        run: |
+          sdkmanager --install "platform-tools" "platforms;android-35" "build-tools;35.0.0"
 
       - name: Extract VYBE source
         shell: bash
@@ -74,11 +73,12 @@ jobs:
 
           if [ -z "$PROJECT_DIR" ]; then
             echo "ERROR: Android project not found in ZIP."
-            find "$SOURCE_DIR" -maxdepth 4 -type f | head -100
+            find "$SOURCE_DIR" -maxdepth 5 -type f | head -100
             exit 1
           fi
 
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+          echo "Found Android project: $PROJECT_DIR"
 
       - name: Check Firebase configuration
         shell: bash
@@ -118,7 +118,7 @@ jobs:
             exit 1
           fi
 
-          echo "Login page and icon resources found."
+          echo "Login page and launcher icon resources found."
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
