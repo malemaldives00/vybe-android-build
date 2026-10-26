@@ -1,3 +1,4 @@
+
 name: Build VYBE APK
 
 on:
@@ -5,7 +6,7 @@ on:
   push:
     paths:
       - ".github/workflows/build-apk.yml"
-      - "*.zip"
+      - "VYBE_AUTH_PREMIUM_DESIGN_SOURCE_WITH_APP_ICON.zip"
       - "google-services.json"
 
 permissions:
@@ -29,53 +30,53 @@ jobs:
         uses: android-actions/setup-android@v3
 
       - name: Install Android SDK packages
+        shell: bash
         run: |
           set -euo pipefail
+          yes | sdkmanager --licenses >/dev/null || true
           sdkmanager --install \
             "platform-tools" \
             "platforms;android-35" \
             "build-tools;35.0.0"
 
-      - name: Extract latest VYBE source and preserve design
+      - name: Extract VYBE source
         shell: bash
         run: |
           set -euo pipefail
 
-          ARCHIVE="VYBE_CP_Friend_Click_Back_Repaired_with_MY_EXACT_Icon.zip"
+          ARCHIVE="$GITHUB_WORKSPACE/VYBE_AUTH_PREMIUM_DESIGN_SOURCE_WITH_APP_ICON.zip"
 
           if [ ! -f "$ARCHIVE" ]; then
-            echo "::error::Source ZIP not found: $ARCHIVE"
+            echo "ERROR: Source ZIP not found in repository root."
             exit 1
           fi
 
-          mkdir -p "$RUNNER_TEMP/vybe-source"
-          unzip -q "$ARCHIVE" -d "$RUNNER_TEMP/vybe-source"
+          SOURCE_DIR="$RUNNER_TEMP/vybe-source"
+          mkdir -p "$SOURCE_DIR"
+          unzip -q "$ARCHIVE" -d "$SOURCE_DIR"
 
-          SETTINGS_FILE="$(find "$RUNNER_TEMP/vybe-source" -type f \
-            \( -name settings.gradle -o -name settings.gradle.kts \) \
-            -print -quit)"
+          PROJECT_DIR="$SOURCE_DIR"
 
-          if [ -z "$SETTINGS_FILE" ]; then
-            echo "::error::Gradle settings file not found."
-            exit 1
-          fi
+          test -f "$PROJECT_DIR/settings.gradle"
+          test -f "$PROJECT_DIR/app/build.gradle"
+          test -f "$PROJECT_DIR/app/src/main/AndroidManifest.xml"
+          test -f "$PROJECT_DIR/app/src/main/assets/index.html"
+          test -f "$PROJECT_DIR/app/src/main/java/com/vybe/app/MainActivity.java"
+          test -f "$PROJECT_DIR/app/google-services.json"
 
-          PROJECT_DIR="$(dirname "$SETTINGS_FILE")"
-          APP_DIR="$PROJECT_DIR/app"
-          MANIFEST="$APP_DIR/src/main/AndroidManifest.xml"
-          RES="$APP_DIR/src/main/res"
-
-          test -f "$MANIFEST"
-          test -f "$APP_DIR/google-services.json"
-          test -f "$RES/mipmap-mdpi/ic_launcher.png"
-          test -f "$RES/mipmap-mdpi/ic_launcher_round.png"
+          MANIFEST="$PROJECT_DIR/app/src/main/AndroidManifest.xml"
 
           grep -q 'android:icon="@mipmap/ic_launcher"' "$MANIFEST"
           grep -q 'android:roundIcon="@mipmap/ic_launcher_round"' "$MANIFEST"
 
+          test -f "$PROJECT_DIR/app/src/main/res/mipmap-mdpi/ic_launcher.png"
+          test -f "$PROJECT_DIR/app/src/main/res/mipmap-mdpi/ic_launcher_round.png"
+
+          # Preserve the ZIP's Firebase configuration unless the repository
+          # provides an explicit replacement.
           if [ -f "$GITHUB_WORKSPACE/google-services.json" ]; then
             cp "$GITHUB_WORKSPACE/google-services.json" \
-              "$APP_DIR/google-services.json"
+              "$PROJECT_DIR/app/google-services.json"
           fi
 
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
@@ -85,7 +86,8 @@ jobs:
         with:
           gradle-version: "8.7"
 
-      - name: Build APK
+      - name: Build debug APK
+        shell: bash
         run: |
           set -euo pipefail
           cd "$PROJECT_DIR"
@@ -94,6 +96,6 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: VYBE-debug-APK
+          name: VYBE-APK
           path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
