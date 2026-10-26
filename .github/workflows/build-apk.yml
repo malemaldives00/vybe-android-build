@@ -26,13 +26,13 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      # Fix: use comma-separated package names.
-      # Do not let setup-android try to install the obsolete "tools" package.
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
         with:
-          packages: "platform-tools,platforms;android-35,build-tools;35.0.0"
-          accept-android-sdk-licenses: true
+          packages: |
+            platform-tools
+            platforms;android-35
+            build-tools;35.0.0
 
       - name: Extract VYBE source
         shell: bash
@@ -43,7 +43,7 @@ jobs:
           SOURCE_DIR="$RUNNER_TEMP/vybe-source"
 
           if [ ! -f "$ARCHIVE" ]; then
-            echo "ERROR: Source ZIP not found in repository root."
+            echo "ERROR: Source ZIP not found."
             exit 1
           fi
 
@@ -54,7 +54,6 @@ jobs:
 
           while IFS= read -r -d '' file; do
             candidate="$(dirname "$file")"
-
             if [ -f "$candidate/app/build.gradle" ] &&
                [ -f "$candidate/app/src/main/AndroidManifest.xml" ]; then
               PROJECT_DIR="$candidate"
@@ -65,7 +64,6 @@ jobs:
           if [ -z "$PROJECT_DIR" ]; then
             while IFS= read -r -d '' file; do
               candidate="$(dirname "$file")"
-
               if [ -f "$candidate/app/build.gradle.kts" ] &&
                  [ -f "$candidate/app/src/main/AndroidManifest.xml" ]; then
                 PROJECT_DIR="$candidate"
@@ -75,13 +73,12 @@ jobs:
           fi
 
           if [ -z "$PROJECT_DIR" ]; then
-            echo "ERROR: Android Gradle project not found in ZIP."
+            echo "ERROR: Android project not found in ZIP."
             find "$SOURCE_DIR" -maxdepth 4 -type f | head -100
             exit 1
           fi
 
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-          echo "Android project found."
 
       - name: Check Firebase configuration
         shell: bash
@@ -89,6 +86,7 @@ jobs:
           set -euo pipefail
 
           FIREBASE_FILE="$PROJECT_DIR/app/google-services.json"
+          mkdir -p "$(dirname "$FIREBASE_FILE")"
 
           if [ -f "$GITHUB_WORKSPACE/google-services.json" ]; then
             cp "$GITHUB_WORKSPACE/google-services.json" "$FIREBASE_FILE"
@@ -99,7 +97,7 @@ jobs:
             exit 1
           fi
 
-          echo "Firebase configuration file found."
+          echo "Firebase configuration found."
 
       - name: Check Login/Signup and icon assets
         shell: bash
@@ -120,7 +118,7 @@ jobs:
             exit 1
           fi
 
-          echo "Login page and launcher icon resources found."
+          echo "Login page and icon resources found."
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
