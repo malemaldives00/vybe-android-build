@@ -1,138 +1,138 @@
- 
+
 name: Build VYBE APK
 
 on:
   workflow_dispatch:
   push:
-    paths:
-      - ".github/workflows/build-apk.yml"
-      - "VYBE_AUTH_PREMIUM_DESIGN_SOURCE_WITH_APP_ICON.zip"
-      - "google-services.json"
+    branches:
+      - main
 
 permissions:
   contents: read
 
 jobs:
   build:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Java 17
+      - name: Set up Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "17"
+          java-version: '17'
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
+        with:
+          packages: ''
 
       - name: Install Android SDK packages
         run: |
-          sdkmanager --install "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+          sdkmanager --install \
+            "platform-tools" \
+            "platforms;android-35" \
+            "build-tools;35.0.0"
 
-      - name: Extract VYBE source
+      - name: Find and extract VYBE project
         shell: bash
         run: |
           set -euo pipefail
 
-          ARCHIVE="$GITHUB_WORKSPACE/VYBE_AUTH_PREMIUM_DESIGN_SOURCE_WITH_APP_ICON.zip"
-          SOURCE_DIR="$RUNNER_TEMP/vybe-source"
+          ZIP_FILE="VYBE_AUTH_PREMIUM_DESIGN_SOURCE_WITH_APP_ICON.zip"
 
-          if [ ! -f "$ARCHIVE" ]; then
-            echo "ERROR: Source ZIP not found."
+          if [ ! -f "$ZIP_FILE" ]; then
+            echo "ERROR: ZIP file not found: $ZIP_FILE"
             exit 1
           fi
 
-          mkdir -p "$SOURCE_DIR"
-          unzip -q "$ARCHIVE" -d "$SOURCE_DIR"
+          mkdir -p extracted
+          unzip -q "$ZIP_FILE" -d extracted
 
           PROJECT_DIR=""
 
-          while IFS= read -r -d '' file; do
-            candidate="$(dirname "$file")"
-            if [ -f "$candidate/app/build.gradle" ] &&
-               [ -f "$candidate/app/src/main/AndroidManifest.xml" ]; then
+          while IFS= read -r -d '' settings; do
+            candidate="$(dirname "$settings")"
+
+            if [ -f "$candidate/app/build.gradle" ] || \
+               [ -f "$candidate/app/build.gradle.kts" ]; then
               PROJECT_DIR="$candidate"
               break
             fi
-          done < <(find "$SOURCE_DIR" -name settings.gradle -print0)
+          done < <(
+            find extracted -type f \
+              \( -name settings.gradle -o -name settings.gradle.kts \) \
+              -print0
+          )
 
           if [ -z "$PROJECT_DIR" ]; then
-            while IFS= read -r -d '' file; do
-              candidate="$(dirname "$file")"
-              if [ -f "$candidate/app/build.gradle.kts" ] &&
-                 [ -f "$candidate/app/src/main/AndroidManifest.xml" ]; then
-                PROJECT_DIR="$candidate"
-                break
-              fi
-            done < <(find "$SOURCE_DIR" -name settings.gradle.kts -print0)
-          fi
-
-          if [ -z "$PROJECT_DIR" ]; then
-            echo "ERROR: Android project not found in ZIP."
-            find "$SOURCE_DIR" -maxdepth 5 -type f | head -100
+            echo "ERROR: Android Gradle project not found in ZIP."
             exit 1
           fi
 
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-          echo "Found Android project: $PROJECT_DIR"
+          echo "Android project found: $PROJECT_DIR"
 
-      - name: Check Firebase configuration
+      - name: Configure Firebase
         shell: bash
         run: |
           set -euo pipefail
 
-          FIREBASE_FILE="$PROJECT_DIR/app/google-services.json"
-          mkdir -p "$(dirname "$FIREBASE_FILE")"
+          APP_DIR="$PROJECT_DIR/app"
+          FIREBASE_FILE="$GITHUB_WORKSPACE/google-services.json"
 
-          if [ -f "$GITHUB_WORKSPACE/google-services.json" ]; then
-            cp "$GITHUB_WORKSPACE/google-services.json" "$FIREBASE_FILE"
-          fi
-
-          if [ ! -f "$FIREBASE_FILE" ]; then
-            echo "ERROR: app/google-services.json is missing."
+          if [ -f "$FIREBASE_FILE" ]; then
+            cp "$FIREBASE_FILE" "$APP_DIR/google-services.json"
+            echo "Firebase configuration copied."
+          else
+            echo "ERROR: google-services.json is missing."
+            echo "Add your Firebase Android configuration to the repository root."
             exit 1
           fi
 
-          echo "Firebase configuration found."
-
-      - name: Check Login/Signup and icon assets
+      - name: Check app files and launcher icon
         shell: bash
         run: |
           set -euo pipefail
 
-          test -f "$PROJECT_DIR/app/src/main/assets/index.html" || {
-            echo "ERROR: Login/Signup HTML file not found."
+          APP_DIR="$PROJECT_DIR/app"
+
+          if [ ! -f "$APP_DIR/src/main/AndroidManifest.xml" ]; then
+            echo "ERROR: AndroidManifest.xml not found."
             exit 1
-          }
+          fi
 
-          RES="$PROJECT_DIR/app/src/main/res"
+          if [ ! -f "$APP_DIR/src/main/assets/index.html" ]; then
+            echo "ERROR: app/src/main/assets/index.html not found."
+            exit 1
+          fi
 
-          if ! find "$RES" -type f \
-            \( -iname 'ic_launcher.png' -o -iname 'ic_launcher.xml' \) \
+          if ! find "$APP_DIR/src/main/res" -type f \
+            \( -name "ic_launcher.png" \
+            -o -name "ic_launcher.xml" \
+            -o -name "ic_launcher.webp" \) \
             | grep -q .; then
-            echo "ERROR: Launcher icon resource not found."
+            echo "ERROR: Launcher icon not found."
             exit 1
           fi
 
-          echo "Login page and launcher icon resources found."
+          echo "Required app files found."
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: "8.7"
+          gradle-version: '8.7'
 
-      - name: Build VYBE debug APK
+      - name: Build VYBE APK
         shell: bash
         run: |
           set -euo pipefail
           cd "$PROJECT_DIR"
-          gradle assembleDebug --stacktrace
+          gradle --no-daemon assembleDebug --stacktrace
 
-      - name: Upload APK
+      - name: Upload VYBE APK
         uses: actions/upload-artifact@v4
         with:
           name: VYBE-APK
