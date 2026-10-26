@@ -8,6 +8,7 @@ on:
       - ".github/workflows/build-apk.yml"
       - "*.zip"
       - "google-services.json"
+      - "google-services (1).json"
 
 permissions:
   contents: read
@@ -45,10 +46,12 @@ jobs:
 
           ARCHIVE=""
           for file in \
-            "VYBE_Login_Signup_FIXED (1).zip" \
+            "VYBE_AUTH_OPTIONS_ADDED_DOWNLOAD.zip" \
+            "VYBE_AUTH_OPTIONS_ADDED_DOWNLOAD (1).zip" \
             "VYBE_Login_Signup_FIXED.zip" \
-            "VYBE_Login_Signup_Firebase_Configured (1).zip" \
+            "VYBE_Login_Signup_FIXED (1).zip" \
             "VYBE_Login_Signup_Firebase_Configured.zip" \
+            "VYBE_Login_Signup_Firebase_Configured (1).zip" \
             "VYBE_CP_Friend_Click_Back_Repaired.zip"
           do
             if [ -f "$file" ]; then
@@ -78,14 +81,21 @@ jobs:
 
           PROJECT_DIR="$(dirname "$SETTINGS")"
 
+          CONFIG=""
           if [ -f "$GITHUB_WORKSPACE/google-services.json" ]; then
+            CONFIG="$GITHUB_WORKSPACE/google-services.json"
+          elif [ -f "$GITHUB_WORKSPACE/google-services (1).json" ]; then
+            CONFIG="$GITHUB_WORKSPACE/google-services (1).json"
+          fi
+
+          if [ -n "$CONFIG" ]; then
             mkdir -p "$PROJECT_DIR/app"
-            cp "$GITHUB_WORKSPACE/google-services.json" \
-              "$PROJECT_DIR/app/google-services.json"
+            cp "$CONFIG" "$PROJECT_DIR/app/google-services.json"
           fi
 
           if [ ! -f "$PROJECT_DIR/app/google-services.json" ]; then
             echo "ERROR: google-services.json not found"
+            echo "Add the Firebase config JSON to the repository root."
             exit 1
           fi
 
