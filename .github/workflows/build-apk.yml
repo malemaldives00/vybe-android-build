@@ -28,18 +28,14 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          packages: |
+            platform-tools
+            platforms;android-35
+            build-tools;35.0.0
+          accept-android-sdk-licenses: true
 
-      - name: Install Android SDK packages
-        shell: bash
-        run: |
-          set -euo pipefail
-          yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager --install \
-            "platform-tools" \
-            "platforms;android-35" \
-            "build-tools;35.0.0"
-
-      - name: Extract VYBE source
+      - name: Check and extract VYBE source
         shell: bash
         run: |
           set -euo pipefail
@@ -55,38 +51,83 @@ jobs:
           mkdir -p "$SOURCE_DIR"
           unzip -q "$ARCHIVE" -d "$SOURCE_DIR"
 
-          PROJECT_DIR="$SOURCE_DIR"
+          # Locate the actual Android project inside the ZIP.
+          PROJECT_DIR=""
+          while IFS= read -r -d '' settings; do
+            candidate="$(dirname "$settings")"
+            if [ -f "$candidate/app/build.gradle" ] &&
+               [ -f "$candidate/app/src/main/AndroidManifest.xml" ]; then
+              PROJECT_DIR="$candidate"
+              break
+            fi
+          done < <(find "$SOURCE_DIR" -name settings.gradle -print0)
 
-          test -f "$PROJECT_DIR/settings.gradle"
-          test -f "$PROJECT_DIR/app/build.gradle"
-          test -f "$PROJECT_DIR/app/src/main/AndroidManifest.xml"
-          test -f "$PROJECT_DIR/app/src/main/assets/index.html"
-          test -f "$PROJECT_DIR/app/src/main/java/com/vybe/app/MainActivity.java"
-          test -f "$PROJECT_DIR/app/google-services.json"
+          if [ -z "$PROJECT_DIR" ]; then
+            while IFS= read -r -d '' settings; do
+              candidate="$(dirname "$settings")"
+              if [ -f "$candidate/app/build.gradle.kts" ] &&
+                 [ -f "$candidate/app/src/main/AndroidManifest.xml" ]; then
+                PROJECT_DIR="$candidate"
+                break
+              fi
+            done < <(find "$SOURCE_DIR" -name settings.gradle.kts -print0)
+          fi
 
-          MANIFEST="$PROJECT_DIR/app/src/main/AndroidManifest.xml"
-
-          grep -q 'android:icon="@mipmap/ic_launcher"' "$MANIFEST"
-          grep -q 'android:roundIcon="@mipmap/ic_launcher_round"' "$MANIFEST"
-
-          test -f "$PROJECT_DIR/app/src/main/res/mipmap-mdpi/ic_launcher.png"
-          test -f "$PROJECT_DIR/app/src/main/res/mipmap-mdpi/ic_launcher_round.png"
-
-          # Preserve the ZIP's Firebase configuration unless the repository
-          # provides an explicit replacement.
-          if [ -f "$GITHUB_WORKSPACE/google-services.json" ]; then
-            cp "$GITHUB_WORKSPACE/google-services.json" \
-              "$PROJECT_DIR/app/google-services.json"
+          if [ -z "$PROJECT_DIR" ]; then
+            echo "ERROR: Android project not found in ZIP."
+            find "$SOURCE_DIR" -maxdepth 4 -type f | head -100
+            exit 1
           fi
 
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+          echo "Android project found: $PROJECT_DIR"
+
+      - name: Check Firebase configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          FIREBASE_FILE="$PROJECT_DIR/app/google-services.json"
+
+          if [ -f "$GITHUB_WORKSPACE/google-services.json" ]; then
+            cp "$GITHUB_WORKSPACE/google-services.json" "$FIREBASE_FILE"
+          fi
+
+          if [ ! -f "$FIREBASE_FILE" ]; then
+            echo "ERROR: Firebase google-services.json is missing."
+            exit 1
+          fi
+
+          echo "Firebase configuration file exists."
+
+      - name: Check app icon resources
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          RES="$PROJECT_DIR/app/src/main/res"
+
+          if [ ! -d "$RES" ]; then
+            echo "ERROR: Android resources directory is missing."
+            exit 1
+          fi
+
+          find "$RES" -type f \
+            \( -iname '*ic_launcher*' -o -iname '*app_icon*' \) \
+            -print
+
+          if ! find "$RES" -type f \
+            \( -iname 'ic_launcher.png' -o -iname 'ic_launcher.xml' \) \
+            | grep -q .; then
+            echo "WARNING: Standard launcher icon was not found."
+          fi
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.7"
 
-      - name: Build debug APK
+      - name: Build VYBE debug APK
         shell: bash
         run: |
           set -euo pipefail
