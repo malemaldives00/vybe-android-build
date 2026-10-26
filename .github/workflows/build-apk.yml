@@ -1,4 +1,4 @@
-
+```yaml
 name: Build VYBE Firebase APK
 
 on:
@@ -7,6 +7,10 @@ on:
     paths:
       - ".github/workflows/build-apk.yml"
       - "*.zip"
+      - "*.png"
+      - "*.jpg"
+      - "*.jpeg"
+      - "*.webp"
       - "google-services.json"
       - "google-services (1).json"
 
@@ -31,9 +35,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager -print -quit)"
+
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" \
+            -type f -name sdkmanager -print -quit)"
+
           test -n "$SDKMANAGER"
+
           yes | "$SDKMANAGER" --licenses >/dev/null || true
+
           "$SDKMANAGER" --install \
             "platform-tools" \
             "platforms;android-35" \
@@ -45,6 +54,7 @@ jobs:
           set -euo pipefail
 
           ARCHIVE=""
+
           for file in \
             "VYBE_AUTH_OPTIONS_ADDED_DOWNLOAD.zip" \
             "VYBE_AUTH_OPTIONS_ADDED_DOWNLOAD (1).zip" \
@@ -61,27 +71,31 @@ jobs:
           done
 
           if [ -z "$ARCHIVE" ]; then
-            echo "ERROR: VYBE ZIP not found. Repository files:"
+            echo "ERROR: VYBE ZIP not found."
             ls -la
             exit 1
           fi
 
           echo "Using ZIP: $ARCHIVE"
+
           mkdir -p "$RUNNER_TEMP/vybe-source"
           unzip -q "$ARCHIVE" -d "$RUNNER_TEMP/vybe-source"
 
-          SETTINGS="$(find "$RUNNER_TEMP/vybe-source" -type f \
-            \( -name settings.gradle -o -name settings.gradle.kts \) \
+          SETTINGS="$(find "$RUNNER_TEMP/vybe-source" \
+            -type f \
+            \( -name settings.gradle \
+               -o -name settings.gradle.kts \) \
             -print -quit)"
 
           test -n "$SETTINGS" || {
-            echo "ERROR: Gradle settings file not found"
+            echo "ERROR: Gradle settings file not found."
             exit 1
           }
 
           PROJECT_DIR="$(dirname "$SETTINGS")"
 
           CONFIG=""
+
           if [ -f "$GITHUB_WORKSPACE/google-services.json" ]; then
             CONFIG="$GITHUB_WORKSPACE/google-services.json"
           elif [ -f "$GITHUB_WORKSPACE/google-services (1).json" ]; then
@@ -94,12 +108,155 @@ jobs:
           fi
 
           if [ ! -f "$PROJECT_DIR/app/google-services.json" ]; then
-            echo "ERROR: google-services.json not found"
-            echo "Add the Firebase config JSON to the repository root."
+            echo "ERROR: google-services.json not found."
             exit 1
           fi
 
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+
+      - name: Install Python image library
+        shell: bash
+        run: |
+          python3 -m pip install --user Pillow
+
+      - name: Set VYBE Launcher App Icon
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          export PROJECT_DIR
+
+          python3 <<'PY'
+          import os
+          import re
+          from pathlib import Path
+          from PIL import Image, ImageOps
+
+          repo = Path(os.environ["GITHUB_WORKSPACE"])
+          project = Path(os.environ["PROJECT_DIR"])
+
+          extensions = {".png", ".jpg", ".jpeg", ".webp"}
+
+          excluded = {
+              "google-services",
+              "ic_launcher",
+              "ic_launcher_round",
+              "notification",
+          }
+
+          images = [
+              p for p in repo.rglob("*")
+              if p.is_file()
+              and p.suffix.lower() in extensions
+              and ".git" not in p.parts
+              and "build" not in p.parts
+              and not any(
+                  word in p.stem.lower()
+                  for word in excluded
+              )
+          ]
+
+          preferred = [
+              p for p in images
+              if any(
+                  word in p.stem.lower()
+                  for word in ("vybe", "logo", "icon")
+              )
+          ]
+
+          candidates = preferred or images
+
+          if not candidates:
+              raise SystemExit(
+                  "ERROR: No logo image found in repository. "
+                  "Upload the VYBE logo image first."
+              )
+
+          logo_path = candidates[0]
+          print(f"Using logo image: {logo_path}")
+
+          with Image.open(logo_path) as source:
+              logo = source.convert("RGBA")
+
+          sizes = {
+              "mipmap-mdpi": 48,
+              "mipmap-hdpi": 72,
+              "mipmap-xhdpi": 96,
+              "mipmap-xxhdpi": 144,
+              "mipmap-xxxhdpi": 192,
+          }
+
+          for folder, size in sizes.items():
+              out_dir = (
+                  project / "app" / "src" / "main"
+                  / "res" / folder
+              )
+              out_dir.mkdir(parents=True, exist_ok=True)
+
+              icon = Image.new(
+                  "RGBA",
+                  (size, size),
+                  (0, 0, 0, 0)
+              )
+
+              fitted = ImageOps.contain(logo, (size, size))
+
+              x = (size - fitted.width) // 2
+              y = (size - fitted.height) // 2
+
+              icon.alpha_composite(fitted, (x, y))
+              icon.save(out_dir / "ic_launcher.png")
+
+          manifest = (
+              project / "app" / "src" / "main"
+              / "AndroidManifest.xml"
+          )
+
+          if not manifest.exists():
+              raise SystemExit(
+                  f"ERROR: AndroidManifest.xml not found: {manifest}"
+              )
+
+          text = manifest.read_text(encoding="utf-8")
+
+          match = re.search(
+              r"<application\b[^>]*>",
+              text,
+              re.S
+          )
+
+          if not match:
+              raise SystemExit(
+                  "ERROR: application tag not found."
+              )
+
+          tag = match.group(0)
+
+          for attr in ("icon", "roundIcon"):
+              tag = re.sub(
+                  rf'\s+android:{attr}="[^"]*"',
+                  "",
+                  tag
+              )
+
+          replacement = (
+              tag[:-1].rstrip()
+              + '\n        android:icon="@mipmap/ic_launcher"'
+              + '\n        android:roundIcon="@mipmap/ic_launcher"'
+              + '\n    >'
+          )
+
+          text = (
+              text[:match.start()]
+              + replacement
+              + text[match.end():]
+          )
+
+          manifest.write_text(text, encoding="utf-8")
+
+          print("Launcher icon resources created.")
+          print("AndroidManifest.xml updated.")
+          PY
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -126,3 +283,4 @@ jobs:
           name: VYBE-Firebase-debug-APK
           path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
+```
