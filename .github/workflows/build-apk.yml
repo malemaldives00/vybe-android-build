@@ -26,35 +26,35 @@ jobs:
           distribution: temurin
           java-version: "17"
 
+      # Fix: use comma-separated package names.
+      # Do not let setup-android try to install the obsolete "tools" package.
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
         with:
-          packages: |
-            platform-tools
-            platforms;android-35
-            build-tools;35.0.0
+          packages: "platform-tools,platforms;android-35,build-tools;35.0.0"
           accept-android-sdk-licenses: true
 
-      - name: Check and extract VYBE source
+      - name: Extract VYBE source
         shell: bash
         run: |
           set -euo pipefail
 
           ARCHIVE="$GITHUB_WORKSPACE/VYBE_AUTH_PREMIUM_DESIGN_SOURCE_WITH_APP_ICON.zip"
+          SOURCE_DIR="$RUNNER_TEMP/vybe-source"
 
           if [ ! -f "$ARCHIVE" ]; then
             echo "ERROR: Source ZIP not found in repository root."
             exit 1
           fi
 
-          SOURCE_DIR="$RUNNER_TEMP/vybe-source"
           mkdir -p "$SOURCE_DIR"
           unzip -q "$ARCHIVE" -d "$SOURCE_DIR"
 
-          # Locate the actual Android project inside the ZIP.
           PROJECT_DIR=""
-          while IFS= read -r -d '' settings; do
-            candidate="$(dirname "$settings")"
+
+          while IFS= read -r -d '' file; do
+            candidate="$(dirname "$file")"
+
             if [ -f "$candidate/app/build.gradle" ] &&
                [ -f "$candidate/app/src/main/AndroidManifest.xml" ]; then
               PROJECT_DIR="$candidate"
@@ -63,8 +63,9 @@ jobs:
           done < <(find "$SOURCE_DIR" -name settings.gradle -print0)
 
           if [ -z "$PROJECT_DIR" ]; then
-            while IFS= read -r -d '' settings; do
-              candidate="$(dirname "$settings")"
+            while IFS= read -r -d '' file; do
+              candidate="$(dirname "$file")"
+
               if [ -f "$candidate/app/build.gradle.kts" ] &&
                  [ -f "$candidate/app/src/main/AndroidManifest.xml" ]; then
                 PROJECT_DIR="$candidate"
@@ -74,13 +75,13 @@ jobs:
           fi
 
           if [ -z "$PROJECT_DIR" ]; then
-            echo "ERROR: Android project not found in ZIP."
+            echo "ERROR: Android Gradle project not found in ZIP."
             find "$SOURCE_DIR" -maxdepth 4 -type f | head -100
             exit 1
           fi
 
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-          echo "Android project found: $PROJECT_DIR"
+          echo "Android project found."
 
       - name: Check Firebase configuration
         shell: bash
@@ -94,33 +95,32 @@ jobs:
           fi
 
           if [ ! -f "$FIREBASE_FILE" ]; then
-            echo "ERROR: Firebase google-services.json is missing."
+            echo "ERROR: app/google-services.json is missing."
             exit 1
           fi
 
-          echo "Firebase configuration file exists."
+          echo "Firebase configuration file found."
 
-      - name: Check app icon resources
+      - name: Check Login/Signup and icon assets
         shell: bash
         run: |
           set -euo pipefail
 
-          RES="$PROJECT_DIR/app/src/main/res"
-
-          if [ ! -d "$RES" ]; then
-            echo "ERROR: Android resources directory is missing."
+          test -f "$PROJECT_DIR/app/src/main/assets/index.html" || {
+            echo "ERROR: Login/Signup HTML file not found."
             exit 1
-          fi
+          }
 
-          find "$RES" -type f \
-            \( -iname '*ic_launcher*' -o -iname '*app_icon*' \) \
-            -print
+          RES="$PROJECT_DIR/app/src/main/res"
 
           if ! find "$RES" -type f \
             \( -iname 'ic_launcher.png' -o -iname 'ic_launcher.xml' \) \
             | grep -q .; then
-            echo "WARNING: Standard launcher icon was not found."
+            echo "ERROR: Launcher icon resource not found."
+            exit 1
           fi
+
+          echo "Login page and launcher icon resources found."
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
