@@ -4,8 +4,7 @@ name: Build VYBE APK
 on:
   workflow_dispatch:
   push:
-    branches:
-      - main
+    branches: [main]
 
 permissions:
   contents: read
@@ -15,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v5
 
       - name: Set up Java
@@ -27,88 +26,131 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4
 
-      - name: Install Android SDK packages
-        shell: bash
+      - name: Install Android SDK
         run: |
-          set -e
           sdkmanager --install \
             "platform-tools" \
             "platforms;android-35" \
             "build-tools;35.0.0"
 
-      - name: Extract VYBE project
+      - name: Extract and merge VYBE
         shell: bash
         run: |
           set -euo pipefail
 
-          ZIP_FILE="VYBE_Login_Signup_Firebase_Configured.zip"
+          AUTH_ZIP="VYBE_Login_Signup_Firebase_Configured.zip"
+          ICON_ZIP="VYBE_CP_Friend_Click_Back_Repaired_with_MY_EXACT_Icon.zip"
 
-          if [ ! -f "$ZIP_FILE" ]; then
-            echo "ERROR: ZIP not found: $ZIP_FILE"
-            echo "Available ZIP files:"
-            find . -maxdepth 2 -iname "*.zip"
+          test -f "$AUTH_ZIP" || {
+            echo "ERROR: Missing $AUTH_ZIP"
             exit 1
+          }
+
+          test -f "$ICON_ZIP" || {
+            echo "ERROR: Missing $ICON_ZIP"
+            exit 1
+          }
+
+          mkdir auth_src icon_src
+          unzip -q "$AUTH_ZIP" -d auth_src
+          unzip -q "$ICON_ZIP" -d icon_src
+
+          find_project() {
+            local root="$1"
+            while IFS= read -r -d '' f; do
+              local d
+              d="$(dirname "$f")"
+              if [ -f "$d/app/build.gradle" ] || \
+                 [ -f "$d/app/build.gradle.kts" ]; then
+                echo "$d"
+                return 0
+              fi
+            done < <(
+              find "$root" -type f \
+                \( -name settings.gradle \
+                -o -name settings.gradle.kts \) -print0
+            )
+            return 1
+          }
+
+          AUTH_DIR="$(find_project auth_src)" || {
+            echo "ERROR: Android project not found in Login/Firebase ZIP"
+            exit 1
+          }
+
+          ICON_DIR="$(find_project icon_src)" || {
+            echo "ERROR: Android project not found in Icon ZIP"
+            exit 1
+          }
+
+          echo "Using app source: $AUTH_DIR"
+          echo "Using icon source: $ICON_DIR"
+
+          AUTH_RES="$AUTH_DIR/app/src/main/res"
+          ICON_RES="$ICON_DIR/app/src/main/res"
+
+          test -d "$ICON_RES" || {
+            echo "ERROR: Icon resources not found"
+            exit 1
+          }
+
+          # Copy launcher icon resources without replacing app screens.
+          while IFS= read -r -d '' f; do
+            rel="${f#"$ICON_RES"/}"
+            case "$rel" in
+              mipmap*/ic_launcher*|drawable*/ic_launcher*)
+                mkdir -p "$AUTH_RES/$(dirname "$rel")"
+                cp "$f" "$AUTH_RES/$rel"
+                ;;
+            esac
+          done < <(find "$ICON_RES" -type f -print0)
+
+          # Use the standard launcher icon resource name.
+          MANIFEST="$AUTH_DIR/app/src/main/AndroidManifest.xml"
+          test -f "$MANIFEST" || {
+            echo "ERROR: AndroidManifest.xml missing"
+            exit 1
+          }
+
+          if ! grep -q 'android:icon="@mipmap/ic_launcher"' "$MANIFEST"; then
+            sed -i 's/<application/<application android:icon="@mipmap\/ic_launcher"/' "$MANIFEST"
           fi
 
-          mkdir -p extracted
-          unzip -q "$ZIP_FILE" -d extracted
-
-          PROJECT_DIR=""
-
-          while IFS= read -r -d '' settings; do
-            candidate="$(dirname "$settings")"
-
-            if [ -f "$candidate/app/build.gradle" ] || \
-               [ -f "$candidate/app/build.gradle.kts" ]; then
-              PROJECT_DIR="$candidate"
-              break
-            fi
-          done < <(
-            find extracted -type f \
-              \( -name "settings.gradle" \
-              -o -name "settings.gradle.kts" \) -print0
-          )
-
-          if [ -z "$PROJECT_DIR" ]; then
-            echo "ERROR: Android Gradle project not found in ZIP."
-            exit 1
-          fi
-
-          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-          echo "Found project: $PROJECT_DIR"
+          echo "PROJECT_DIR=$AUTH_DIR" >> "$GITHUB_ENV"
 
       - name: Configure Firebase
         shell: bash
         run: |
           set -euo pipefail
 
-          if [ ! -f "google-services.json" ]; then
-            echo "ERROR: google-services.json missing from repository root."
+          FIREBASE_JSON=""
+
+          for f in google-services.json "google-services (1).json"; do
+            if [ -f "$f" ]; then
+              FIREBASE_JSON="$f"
+              break
+            fi
+          done
+
+          if [ -z "$FIREBASE_JSON" ]; then
+            echo "ERROR: Firebase configuration JSON is missing"
             exit 1
           fi
 
-          cp google-services.json "$PROJECT_DIR/app/google-services.json"
+          cp "$FIREBASE_JSON" "$PROJECT_DIR/app/google-services.json"
 
-      - name: Check Android project
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          test -f "$PROJECT_DIR/app/src/main/AndroidManifest.xml"
-
-          if [ ! -f "$PROJECT_DIR/gradlew" ]; then
-            echo "ERROR: gradlew not found in Android project."
-            exit 1
-          fi
-
-          chmod +x "$PROJECT_DIR/gradlew"
-
-      - name: Build VYBE APK
+      - name: Build APK
         shell: bash
         run: |
           set -euo pipefail
           cd "$PROJECT_DIR"
-          ./gradlew --no-daemon assembleDebug --stacktrace
+
+          if [ -f gradlew ]; then
+            chmod +x gradlew
+            ./gradlew --no-daemon assembleDebug
+          else
+            gradle --no-daemon assembleDebug
+          fi
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
