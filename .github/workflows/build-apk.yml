@@ -16,35 +16,37 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Java
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4
-        with:
-          packages: ''
 
       - name: Install Android SDK packages
+        shell: bash
         run: |
+          set -e
           sdkmanager --install \
             "platform-tools" \
             "platforms;android-35" \
             "build-tools;35.0.0"
 
-      - name: Find and extract VYBE project
+      - name: Extract VYBE project
         shell: bash
         run: |
           set -euo pipefail
 
-          ZIP_FILE="VYBE_AUTH_PREMIUM_DESIGN_SOURCE_WITH_APP_ICON.zip"
+          ZIP_FILE="VYBE_Login_Signup_Firebase_Configured.zip"
 
           if [ ! -f "$ZIP_FILE" ]; then
-            echo "ERROR: ZIP file not found: $ZIP_FILE"
+            echo "ERROR: ZIP not found: $ZIP_FILE"
+            echo "Available ZIP files:"
+            find . -maxdepth 2 -iname "*.zip"
             exit 1
           fi
 
@@ -63,8 +65,8 @@ jobs:
             fi
           done < <(
             find extracted -type f \
-              \( -name settings.gradle -o -name settings.gradle.kts \) \
-              -print0
+              \( -name "settings.gradle" \
+              -o -name "settings.gradle.kts" \) -print0
           )
 
           if [ -z "$PROJECT_DIR" ]; then
@@ -73,66 +75,42 @@ jobs:
           fi
 
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-          echo "Android project found: $PROJECT_DIR"
+          echo "Found project: $PROJECT_DIR"
 
       - name: Configure Firebase
         shell: bash
         run: |
           set -euo pipefail
 
-          APP_DIR="$PROJECT_DIR/app"
-          FIREBASE_FILE="$GITHUB_WORKSPACE/google-services.json"
-
-          if [ -f "$FIREBASE_FILE" ]; then
-            cp "$FIREBASE_FILE" "$APP_DIR/google-services.json"
-            echo "Firebase configuration copied."
-          else
-            echo "ERROR: google-services.json is missing."
-            echo "Add your Firebase Android configuration to the repository root."
+          if [ ! -f "google-services.json" ]; then
+            echo "ERROR: google-services.json missing from repository root."
             exit 1
           fi
 
-      - name: Check app files and launcher icon
+          cp google-services.json "$PROJECT_DIR/app/google-services.json"
+
+      - name: Check Android project
         shell: bash
         run: |
           set -euo pipefail
 
-          APP_DIR="$PROJECT_DIR/app"
+          test -f "$PROJECT_DIR/app/src/main/AndroidManifest.xml"
 
-          if [ ! -f "$APP_DIR/src/main/AndroidManifest.xml" ]; then
-            echo "ERROR: AndroidManifest.xml not found."
+          if [ ! -f "$PROJECT_DIR/gradlew" ]; then
+            echo "ERROR: gradlew not found in Android project."
             exit 1
           fi
 
-          if [ ! -f "$APP_DIR/src/main/assets/index.html" ]; then
-            echo "ERROR: app/src/main/assets/index.html not found."
-            exit 1
-          fi
-
-          if ! find "$APP_DIR/src/main/res" -type f \
-            \( -name "ic_launcher.png" \
-            -o -name "ic_launcher.xml" \
-            -o -name "ic_launcher.webp" \) \
-            | grep -q .; then
-            echo "ERROR: Launcher icon not found."
-            exit 1
-          fi
-
-          echo "Required app files found."
-
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.7'
+          chmod +x "$PROJECT_DIR/gradlew"
 
       - name: Build VYBE APK
         shell: bash
         run: |
           set -euo pipefail
           cd "$PROJECT_DIR"
-          gradle --no-daemon assembleDebug --stacktrace
+          ./gradlew --no-daemon assembleDebug --stacktrace
 
-      - name: Upload VYBE APK
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: VYBE-APK
